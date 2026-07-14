@@ -39,7 +39,7 @@ fn main() -> Result<()> {
     println!("pwm2_enable previous value: {prev_enable}");
     std::fs::write(&hwmon.pwm_enable_path, b"1\n")?;
 
-    let _guard = signal::SignalGuard::new(hwmon.pwm_enable_path.clone())?;
+    let (_guard, shutdown) = signal::SignalGuard::new(hwmon.pwm_enable_path.clone())?;
 
     if let Some(parent) = std::path::Path::new(&config.db_path).parent() {
         std::fs::create_dir_all(parent)?;
@@ -62,19 +62,18 @@ fn main() -> Result<()> {
         tokio::select! {
             r = ds_handle => {
                 tracing::error!(?r, "downsample task exited");
-                r??
             }
             r = fan_handle => {
                 tracing::error!(?r, "fan task exited");
-                r??
             }
             r = db_handle => {
                 tracing::error!(?r, "db task exited");
-                r??
             }
             r = ipc_handle => {
                 tracing::error!(?r, "ipc task exited");
-                r??
+            }
+            () = shutdown.notified() => {
+                tracing::info!("shutdown signal received, stopping tasks");
             }
         };
 
