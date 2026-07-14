@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use sb_protocol::types::{IpcRequest, IpcResponse, MetricSample};
+use sb_protocol::types::{HistoricalRow, IpcRequest, IpcResponse, MetricSample};
 
 use crate::config::Config;
 use crate::store::TelemetryStore;
@@ -123,22 +123,25 @@ pub fn spawn(
     })
 }
 
-fn query_historical(path: &str, count: usize) -> anyhow::Result<Vec<MetricSample>> {
+fn query_historical(path: &str, count: usize) -> anyhow::Result<Vec<HistoricalRow>> {
     let conn = rusqlite::Connection::open(path)?;
     let mut stmt = conn.prepare(
-        "SELECT bucket_ts, temp_mean, usage_mean, rpm_mean, pwm_mean
+        "SELECT bucket_ts, temp_min, temp_max, temp_mean,
+                usage_min, usage_max, usage_mean, rpm_mean, pwm_mean
          FROM rollups ORDER BY bucket_ts DESC LIMIT ?1",
     )?;
-    let mut rows: Vec<MetricSample> = stmt
+    let mut rows: Vec<HistoricalRow> = stmt
         .query_map(rusqlite::params![count as i64], |row| {
-            let rpm: f64 = row.get(3)?;
-            let pwm: f64 = row.get(4)?;
-            Ok(MetricSample {
+            Ok(HistoricalRow {
                 timestamp: row.get(0)?,
-                cpu_temp: row.get::<_, f64>(1)? as f32,
-                cpu_usage: row.get::<_, f64>(2)? as f32,
-                fan_rpm: rpm as u16,
-                pwm_value: pwm as u8,
+                temp_min: row.get::<_, f64>(1)? as f32,
+                temp_max: row.get::<_, f64>(2)? as f32,
+                temp_mean: row.get::<_, f64>(3)? as f32,
+                usage_min: row.get::<_, f64>(4)? as f32,
+                usage_max: row.get::<_, f64>(5)? as f32,
+                usage_mean: row.get::<_, f64>(6)? as f32,
+                rpm_mean: row.get::<_, f64>(7)? as f32,
+                pwm_mean: row.get::<_, f64>(8)? as f32,
             })
         })?
         .filter_map(|r| r.ok())

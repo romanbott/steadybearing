@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
-use sb_protocol::types::{MetricSample, Snapshot, FAN_MAX_RPM, FAN_MIN_RPM};
+use sb_protocol::types::{HistoricalRow, MetricSample, Snapshot, FAN_MAX_RPM, FAN_MIN_RPM};
 
 use crate::chart;
 
@@ -35,9 +35,9 @@ impl DisplayMode {
 
     fn next_historical(self) -> Self {
         match self {
-            DisplayMode::Raw | DisplayMode::MA => DisplayMode::Min,
-            DisplayMode::Min => DisplayMode::Max,
-            DisplayMode::Max => DisplayMode::MA,
+            DisplayMode::Raw | DisplayMode::MA => DisplayMode::Max,
+            DisplayMode::Max => DisplayMode::Min,
+            DisplayMode::Min => DisplayMode::MA,
         }
     }
 
@@ -47,6 +47,14 @@ impl DisplayMode {
             DisplayMode::MA => "10s MA",
             DisplayMode::Min => "10s min",
             DisplayMode::Max => "10s max",
+        }
+    }
+
+    fn label_historical(self) -> &'static str {
+        match self {
+            DisplayMode::Raw | DisplayMode::MA => "mean",
+            DisplayMode::Min => "min",
+            DisplayMode::Max => "max",
         }
     }
 }
@@ -79,6 +87,7 @@ impl TimeFrame {
 pub struct TuiApp {
     socket_path: String,
     live_ticks: VecDeque<MetricSample>,
+    historical_data: Vec<HistoricalRow>,
     snapshot: Option<Snapshot>,
     mode: DisplayMode,
     timeframe: TimeFrame,
@@ -90,6 +99,7 @@ impl TuiApp {
         TuiApp {
             socket_path,
             live_ticks: VecDeque::with_capacity(MAX_LIVE_SAMPLES),
+            historical_data: Vec::new(),
             snapshot: None,
             mode: DisplayMode::Raw,
             timeframe: TimeFrame::Live,
@@ -165,8 +175,9 @@ impl TuiApp {
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
+                                    let data_len = self.historical_data.len();
                                     self.scroll_offset = (self.scroll_offset + 1)
-                                        .min(self.live_ticks.len());
+                                        .min(data_len);
                                 }
                             }
                             KeyCode::Right => {
@@ -216,6 +227,7 @@ impl TuiApp {
             self.snapshot = Some(snapshot);
             self.timeframe = TimeFrame::Live;
             self.scroll_offset = 0;
+            self.historical_data.clear();
 
             crate::client::request_stream_live(framed).await?;
             return Ok(());
@@ -233,7 +245,7 @@ impl TuiApp {
         let rows =
             crate::client::request_historical(&mut conn, bucket_secs, count).await?;
 
-        self.live_ticks = rows.into();
+        self.historical_data = rows;
         self.timeframe = new;
         self.scroll_offset = 0;
         Ok(())
@@ -250,7 +262,17 @@ impl TuiApp {
             ])
             .split(f.area());
 
-        let latest = self.live_ticks.back().copied();
+        let latest = if self.timeframe == TimeFrame::Live {
+            self.live_ticks.back().copied()
+        } else {
+            self.historical_data.last().map(|r| MetricSample {
+                timestamp: r.timestamp,
+                cpu_temp: r.temp_mean,
+                cpu_usage: r.usage_mean,
+                fan_rpm: r.rpm_mean as u16,
+                pwm_value: r.pwm_mean as u8,
+            })
+        };
 
         self.render_metric_pane(f, chunks[0], "CPU Usage", latest, MetricKind::Usage);
         self.render_metric_pane(f, chunks[1], "CPU Temp", latest, MetricKind::Temp);
@@ -258,16 +280,23 @@ impl TuiApp {
 
         let scroll = if self.timeframe != TimeFrame::Live {
             let chart_w = chunks[0].width.saturating_sub(2) as usize;
-            let max_off = self.live_ticks.len().saturating_sub(chart_w);
+            let data_len = self.historical_data.len();
+            let max_off = data_len.saturating_sub(chart_w);
             self.scroll_offset = self.scroll_offset.min(max_off);
             format!(" ← {}/{} →", self.scroll_offset, max_off)
         } else {
             String::new()
         };
 
+        let mode_label = if self.timeframe == TimeFrame::Live {
+            self.mode.label()
+        } else {
+            self.mode.label_historical()
+        };
+
         let line = Line::from(format!(
             " m: {}  t: {}{}  q: quit",
-            self.mode.label(),
+            mode_label,
             self.timeframe.label(),
             scroll,
         ));
@@ -333,6 +362,10 @@ impl TuiApp {
         latest: &MetricSample,
         kind: MetricKind,
     ) -> (f32, Vec<f32>, f32, f32) {
+        if self.timeframe != TimeFrame::Live {
+            return self.extract_historical_bars(chart_w, latest, kind);
+        }
+
         match kind {
             MetricKind::Usage => {
                 let cur = self.current_val(latest, |t| t.cpu_usage, 0.0);
@@ -350,6 +383,47 @@ impl TuiApp {
                 let floor = FAN_MIN_RPM as f32 * 0.9;
                 (cur as f32, vals, floor, FAN_MAX_RPM as f32)
             }
+        }
+    }
+
+    fn extract_historical_bars(
+        &self,
+        chart_w: usize,
+        _latest: &MetricSample,
+        kind: MetricKind,
+    ) -> (f32, Vec<f32>, f32, f32) {
+        let len = self.historical_data.len();
+        let max_off = len.saturating_sub(chart_w);
+        let offset = self.scroll_offset.min(max_off);
+        let start = max_off - offset;
+        let end = (start + chart_w).min(len);
+
+        let values: Vec<f32> = self.historical_data[start..end]
+            .iter()
+            .map(|r| self.historical_col(r, kind))
+            .collect();
+
+        let cur = values.last().copied().unwrap_or(0.0);
+
+        match kind {
+            MetricKind::Usage => (cur, values, 0.0, 100.0),
+            MetricKind::Temp => (cur, values, 0.0, 100.0),
+            MetricKind::Fan => {
+                let floor = FAN_MIN_RPM as f32 * 0.9;
+                (cur, values, floor, FAN_MAX_RPM as f32)
+            }
+        }
+    }
+
+    fn historical_col(&self, row: &HistoricalRow, kind: MetricKind) -> f32 {
+        match (self.mode, kind) {
+            (DisplayMode::Max, MetricKind::Usage) => row.usage_max,
+            (DisplayMode::Min, MetricKind::Usage) => row.usage_min,
+            (_, MetricKind::Usage) => row.usage_mean,
+            (DisplayMode::Max, MetricKind::Temp) => row.temp_max,
+            (DisplayMode::Min, MetricKind::Temp) => row.temp_min,
+            (_, MetricKind::Temp) => row.temp_mean,
+            (_, MetricKind::Fan) => row.rpm_mean,
         }
     }
 

@@ -1,6 +1,6 @@
 use anyhow::bail;
 use futures::{SinkExt, StreamExt};
-use sb_protocol::types::{IpcRequest, IpcResponse, MetricSample, Snapshot};
+use sb_protocol::types::{HistoricalRow, IpcRequest, IpcResponse, Snapshot};
 use tokio::net::UnixStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
@@ -52,7 +52,7 @@ pub async fn request_historical(
     framed: &mut IpcFramed,
     bucket_secs: u32,
     count: usize,
-) -> anyhow::Result<Vec<MetricSample>> {
+) -> anyhow::Result<Vec<HistoricalRow>> {
     let req_bytes = bincode::serialize(&IpcRequest::Historical { bucket_secs, count })?;
     framed.send(bytes::Bytes::from(req_bytes)).await?;
 

@@ -11,6 +11,19 @@ pub struct MetricSample {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoricalRow {
+    pub timestamp: i64,
+    pub temp_min: f32,
+    pub temp_max: f32,
+    pub temp_mean: f32,
+    pub usage_min: f32,
+    pub usage_max: f32,
+    pub usage_mean: f32,
+    pub rpm_mean: f32,
+    pub pwm_mean: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub tier1: Vec<MetricSample>,
     pub tier2: Vec<MetricSample>,
@@ -29,7 +42,7 @@ pub enum IpcRequest {
 pub enum IpcResponse {
     Snapshot(Snapshot),
     LiveTick(MetricSample),
-    Historical(Vec<MetricSample>),
+    Historical(Vec<HistoricalRow>),
 }
 
 pub const TIER1_CAPACITY: usize = 3600;
