@@ -1,0 +1,20 @@
+[package]
+name = "sb"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "sb"
+path = "src/main.rs"
+
+[dependencies]
+sb-protocol = { path = "../sb-protocol" }
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.29"
+crossterm = "0.28"
+clap = { version = "4", features = ["derive"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bincode = "1"
+anyhow = "1"
+futures = "0.3"
+bytes = "1"

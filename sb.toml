@@ -1,0 +1,48 @@
+# SteadyBearing daemon configuration
+# All fields are optional — defaults shown below.
+
+socket_path = "/tmp/sb.sock"
+
+# --- Database ---
+
+# Minute-resolution telemetry, pruned after retention_days
+db_path = "/var/log/sb/telemetry.db"
+
+# Hourly-resolution archive, kept forever
+db_archive_path = "/var/log/sb/archive.db"
+
+# Seconds between DB flushes
+db_flush_secs = 600
+
+# Days to retain minute-resolution data
+db_retention_days = 7
+
+# --- Fan control (hysteresis) ---
+
+# Minimum PWM (0-255), never drops below this even when idling.
+# ~43% speed = 110/255, silent airflow to flush NVMe heat
+pwm_baseline = 110
+
+# Temperature (°C) below which the fan begins slowing down
+fan_soft_min = 40.0
+
+# Temperature (°C) above which the fan begins speeding up
+fan_soft_max = 60.0
+
+# Temperature (°C) at which the fan ramps to 100% over hard_ramp_secs
+fan_hard_max = 80.0
+
+# Seconds the temperature must stay above/below threshold before reacting
+fan_dwell_secs = 10.0
+
+# PWM units to add or remove per adjustment step
+fan_step = 5
+
+# Seconds to ramp from current PWM to 255 when hard_max is hit
+fan_hard_ramp_secs = 10.0
+
+# Temperature (°C) below which PWM drifts back toward baseline
+fan_drift_temp = 50.0
+
+# Seconds per 1-unit PWM reduction when drifting
+fan_drift_secs = 30.0

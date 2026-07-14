@@ -1,0 +1,16 @@
+[Unit]
+Description=SteadyBearing fan control daemon
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/mkdir -p /var/log/sb
+ExecStart=/usr/local/bin/sb-daemon -v
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
