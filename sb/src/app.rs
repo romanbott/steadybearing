@@ -92,6 +92,7 @@ pub struct TuiApp {
     mode: DisplayMode,
     timeframe: TimeFrame,
     scroll_offset: usize,
+    selection: usize,
 }
 
 impl TuiApp {
@@ -104,6 +105,7 @@ impl TuiApp {
             mode: DisplayMode::Raw,
             timeframe: TimeFrame::Live,
             scroll_offset: 0,
+            selection: 0,
         }
     }
 
@@ -175,15 +177,15 @@ impl TuiApp {
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
-                                    let data_len = self.historical_data.len();
-                                    self.scroll_offset = (self.scroll_offset + 1)
-                                        .min(data_len);
+                                    self.selection =
+                                        self.selection.saturating_sub(1);
                                 }
                             }
                             KeyCode::Right => {
                                 if self.timeframe != TimeFrame::Live {
-                                    self.scroll_offset =
-                                        self.scroll_offset.saturating_sub(1);
+                                    let data_len = self.historical_data.len();
+                                    self.selection =
+                                        (self.selection + 1).min(data_len.saturating_sub(1));
                                 }
                             }
                             _ => {}
@@ -227,6 +229,7 @@ impl TuiApp {
             self.snapshot = Some(snapshot);
             self.timeframe = TimeFrame::Live;
             self.scroll_offset = 0;
+            self.selection = 0;
             self.historical_data.clear();
 
             crate::client::request_stream_live(framed).await?;
@@ -248,6 +251,7 @@ impl TuiApp {
         self.historical_data = rows;
         self.timeframe = new;
         self.scroll_offset = 0;
+        self.selection = self.historical_data.len().saturating_sub(1);
         Ok(())
     }
 
@@ -274,16 +278,47 @@ impl TuiApp {
             })
         };
 
-        self.render_metric_pane(f, chunks[0], "CPU Usage", latest, MetricKind::Usage);
-        self.render_metric_pane(f, chunks[1], "CPU Temp", latest, MetricKind::Temp);
-        self.render_metric_pane(f, chunks[2], "Fan", latest, MetricKind::Fan);
-
-        let scroll = if self.timeframe != TimeFrame::Live {
+        let (sel_data, sel_col) = if self.timeframe != TimeFrame::Live {
             let chart_w = chunks[0].width.saturating_sub(2) as usize;
             let data_len = self.historical_data.len();
             let max_off = data_len.saturating_sub(chart_w);
             self.scroll_offset = self.scroll_offset.min(max_off);
-            format!(" ← {}/{} →", self.scroll_offset, max_off)
+            self.selection = self.selection.min(data_len.saturating_sub(1));
+
+            let vp_start = max_off.saturating_sub(self.scroll_offset);
+            let vp_end = (vp_start + chart_w).min(data_len);
+
+            if self.selection < vp_start {
+                self.scroll_offset = (max_off.saturating_sub(self.selection)).min(max_off);
+            } else if self.selection >= vp_end {
+                self.scroll_offset = max_off
+                    .saturating_sub(self.selection.saturating_sub(chart_w.saturating_sub(1)))
+                    .min(max_off);
+            }
+
+            let vp_start = max_off.saturating_sub(self.scroll_offset);
+            let col = self.selection.saturating_sub(vp_start);
+            let s = self.historical_data.get(self.selection).map(|r| {
+                (r.timestamp, self.historical_col(r, MetricKind::Usage),
+                 self.historical_col(r, MetricKind::Temp),
+                 self.historical_col(r, MetricKind::Fan), max_off)
+            });
+            (s, Some(col))
+        } else {
+            (None, None)
+        };
+
+        self.render_metric_pane(f, chunks[0], "CPU Usage", latest, sel_col, MetricKind::Usage);
+        self.render_metric_pane(f, chunks[1], "CPU Temp", latest, sel_col, MetricKind::Temp);
+        self.render_metric_pane(f, chunks[2], "Fan", latest, sel_col, MetricKind::Fan);
+
+        let scroll = if let Some((ts, usage, temp, fan, max_off)) = sel_data {
+            let hh = ts / 3600 % 24;
+            let mm = ts / 60 % 60;
+            format!(
+                "  {:02}:{:02} U:{:.0}% T:{:.0}°C F:{}RPM  ← {}/{} →",
+                hh, mm, usage, temp, fan as u16, self.scroll_offset, max_off,
+            )
         } else {
             String::new()
         };
@@ -309,6 +344,7 @@ impl TuiApp {
         area: Rect,
         label: &str,
         latest: Option<MetricSample>,
+        sel_col: Option<usize>,
         kind: MetricKind,
     ) {
         let Some(s) = latest else { return };
@@ -316,7 +352,8 @@ impl TuiApp {
         let dummy_block = Block::default().borders(Borders::ALL);
         let inner = dummy_block.inner(area);
         let chart_w = inner.width.max(1) as usize;
-        let chart_h = inner.height.max(1) as usize;
+        let caret_h = if sel_col.is_some() && self.timeframe != TimeFrame::Live { 1 } else { 0 };
+        let chart_h = inner.height.max(1).saturating_sub(caret_h) as usize;
 
         let (cur_val, values, range_min, range_max) = self.extract_bars(chart_w, &s, kind);
 
@@ -333,6 +370,26 @@ impl TuiApp {
         let buckets = chart::decimate(&values, chart_w);
 
         let mut lines = Vec::new();
+
+        if let Some(col) = sel_col {
+            if self.timeframe != TimeFrame::Live && col < buckets.len() {
+                let mut caret_spans = Vec::new();
+                for (i, &val) in buckets.iter().enumerate() {
+                    if i == col {
+                        let color = match kind {
+                            MetricKind::Usage => usage_color(val),
+                            MetricKind::Temp => temp_color(val),
+                            MetricKind::Fan => fan_color(val as u16),
+                        };
+                        caret_spans.push(Span::styled("▼", Style::default().fg(color)));
+                    } else {
+                        caret_spans.push(Span::raw(" "));
+                    }
+                }
+                lines.push(Line::from(caret_spans));
+            }
+        }
+
         for visual_row in (0..chart_h).rev() {
             let mut spans = Vec::new();
 
