@@ -94,6 +94,7 @@ pub struct TuiApp {
     timeframe: TimeFrame,
     scroll_offset: usize,
     selection: usize,
+    key_repeat: Option<(KeyCode, u32)>,
 }
 
 impl TuiApp {
@@ -107,6 +108,7 @@ impl TuiApp {
             timeframe: TimeFrame::Live,
             scroll_offset: 0,
             selection: 0,
+            key_repeat: None,
         }
     }
 
@@ -178,18 +180,22 @@ impl TuiApp {
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
+                                    let step = self.advance_repeat(KeyCode::Left);
                                     self.selection =
-                                        self.selection.saturating_sub(1);
+                                        self.selection.saturating_sub(step);
                                 }
                             }
                             KeyCode::Right => {
                                 if self.timeframe != TimeFrame::Live {
+                                    let step = self.advance_repeat(KeyCode::Right);
                                     let data_len = self.historical_data.len();
                                     self.selection =
-                                        (self.selection + 1).min(data_len.saturating_sub(1));
+                                        (self.selection + step).min(data_len.saturating_sub(1));
                                 }
                             }
-                            _ => {}
+                            _ => {
+                                self.key_repeat = None;
+                            }
                         }
                     }
                 }
@@ -231,6 +237,7 @@ impl TuiApp {
             self.timeframe = TimeFrame::Live;
             self.scroll_offset = 0;
             self.selection = 0;
+            self.key_repeat = None;
             self.historical_data.clear();
 
             crate::client::request_stream_live(framed).await?;
@@ -253,7 +260,26 @@ impl TuiApp {
         self.timeframe = new;
         self.scroll_offset = 0;
         self.selection = self.historical_data.len().saturating_sub(1);
+        self.key_repeat = None;
         Ok(())
+    }
+
+    fn arrow_step(count: u32) -> usize {
+        match count {
+            1..=8 => 1,
+            9..=25 => 2,
+            26..=60 => 5,
+            _ => 8,
+        }
+    }
+
+    fn advance_repeat(&mut self, code: KeyCode) -> usize {
+        let count = match self.key_repeat {
+            Some((prev, c)) if prev == code => c + 1,
+            _ => 1,
+        };
+        self.key_repeat = Some((code, count));
+        Self::arrow_step(count)
     }
 
     fn render(&mut self, f: &mut Frame) {
