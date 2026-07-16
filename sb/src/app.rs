@@ -1,7 +1,7 @@
-use chrono::{Local, TimeZone};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use chrono::{Local, TimeZone};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
@@ -305,32 +305,41 @@ impl TuiApp {
             })
         };
 
-        let (time_str, sel_col) = if self.timeframe != TimeFrame::Live {
+        let (time_str, hist_info) = if self.timeframe != TimeFrame::Live {
             let chart_w = chunks[0].width.saturating_sub(2) as usize;
             let data_len = self.historical_data.len();
             let max_off = data_len.saturating_sub(chart_w);
             self.scroll_offset = self.scroll_offset.min(max_off);
             self.selection = self.selection.min(data_len.saturating_sub(1));
 
-            let vp_start = max_off.saturating_sub(self.scroll_offset);
-            let vp_end = (vp_start + chart_w).min(data_len);
+            let margin = (chart_w / 10).max(1);
 
-            if self.selection < vp_start {
-                self.scroll_offset = (max_off.saturating_sub(self.selection)).min(max_off);
-            } else if self.selection >= vp_end {
-                self.scroll_offset = max_off
-                    .saturating_sub(self.selection.saturating_sub(chart_w.saturating_sub(1)))
-                    .min(max_off);
+            let scroll = self.scroll_offset;
+            let vp_start = max_off.saturating_sub(scroll);
+            let left_gap = margin.saturating_sub(vp_start);
+            let right_gap = margin.saturating_sub(scroll);
+            let bar_count = chart_w.saturating_sub(left_gap).saturating_sub(right_gap);
+            let bar_vp_end = (vp_start + bar_count).min(data_len);
+
+            // position viewport so selection is inside the bar area
+            if self.selection >= bar_vp_end {
+                let overshoot = self.selection.saturating_sub(bar_vp_end.saturating_sub(1));
+                self.scroll_offset = scroll.saturating_sub(overshoot);
+            } else if self.selection < vp_start {
+                let undershoot = vp_start.saturating_sub(self.selection);
+                self.scroll_offset = (scroll + undershoot).min(max_off);
             }
 
             let vp_start = max_off.saturating_sub(self.scroll_offset);
-            let col = self.selection.saturating_sub(vp_start);
+            let left_gap = margin.saturating_sub(vp_start);
+            let right_gap = margin.saturating_sub(self.scroll_offset);
+
             let ts = self.historical_data.get(self.selection).map(|r| r.timestamp);
             let time = ts.map(|t| {
                 Local.timestamp_opt(t, 0).single().map(|dt| dt.format("%H:%M").to_string()).unwrap_or_default()
             }).unwrap_or_default();
             let display = format!("{time}  ← {}/{max_off} →", self.scroll_offset);
-            (Some(display), Some(col))
+            (Some(display), Some((left_gap, right_gap, vp_start, max_off)))
         } else {
             (None, None)
         };
@@ -348,9 +357,9 @@ impl TuiApp {
             })
         } else { None };
 
-        self.render_metric_pane(f, chunks[0], "CPU Usage", latest, sel_col, sel_usage, MetricKind::Usage);
-        self.render_metric_pane(f, chunks[1], "CPU Temp", latest, sel_col, sel_temp, MetricKind::Temp);
-        self.render_metric_pane(f, chunks[2], "Fan", latest, sel_col, sel_fan, MetricKind::Fan);
+        self.render_metric_pane(f, chunks[0], "CPU Usage", latest, hist_info, sel_usage, MetricKind::Usage);
+        self.render_metric_pane(f, chunks[1], "CPU Temp", latest, hist_info, sel_temp, MetricKind::Temp);
+        self.render_metric_pane(f, chunks[2], "Fan", latest, hist_info, sel_fan, MetricKind::Fan);
 
         let scroll = time_str.unwrap_or_default();
 
@@ -375,30 +384,30 @@ impl TuiApp {
         area: Rect,
         label: &str,
         latest: Option<MetricSample>,
-        sel_col: Option<usize>,
+        hist_info: Option<(usize, usize, usize, usize)>,
         sel_value: Option<String>,
         kind: MetricKind,
     ) {
+        if let Some((left_gap, right_gap, vp_start, max_off)) = hist_info {
+            self.render_historical_pane(f, area, label, kind, sel_value, left_gap, right_gap, vp_start, max_off);
+            return;
+        }
+
         let Some(s) = latest else { return };
 
         let dummy_block = Block::default().borders(Borders::ALL);
         let inner = dummy_block.inner(area);
         let chart_w = inner.width.max(1) as usize;
-        let caret_h = if sel_col.is_some() && self.timeframe != TimeFrame::Live { 1 } else { 0 };
-        let chart_h = inner.height.max(1).saturating_sub(caret_h) as usize;
+        let chart_h = inner.height.max(1) as usize;
 
         let (cur_val, values, range_min, range_max) = self.extract_bars(chart_w, &s, kind);
 
-        let title = if let Some(ref sv) = sel_value {
-            format!("{}: {}", label, sv)
-        } else {
-            match kind {
-                MetricKind::Usage => format!("{}: {:.1}%", label, cur_val),
-                MetricKind::Temp => format!("{}: {:.1}°C", label, cur_val),
-                MetricKind::Fan => {
-                    let pwm_pct = (s.pwm_value as f32 / 255.0 * 100.0) as u8;
-                    format!("{}: {} RPM ({}%)", label, cur_val as u16, pwm_pct)
-                }
+        let title = match kind {
+            MetricKind::Usage => format!("{}: {:.1}%", label, cur_val),
+            MetricKind::Temp => format!("{}: {:.1}°C", label, cur_val),
+            MetricKind::Fan => {
+                let pwm_pct = (s.pwm_value as f32 / 255.0 * 100.0) as u8;
+                format!("{}: {} RPM ({}%)", label, cur_val as u16, pwm_pct)
             }
         };
         let block = Block::default().title(title).borders(Borders::ALL);
@@ -406,29 +415,8 @@ impl TuiApp {
         let buckets = chart::decimate(&values, chart_w);
 
         let mut lines = Vec::new();
-
-        if let Some(col) = sel_col {
-            if self.timeframe != TimeFrame::Live && col < buckets.len() {
-                let mut caret_spans = Vec::new();
-                for (i, &val) in buckets.iter().enumerate() {
-                    if i == col {
-                        let color = match kind {
-                            MetricKind::Usage => usage_color(val),
-                            MetricKind::Temp => temp_color(val),
-                            MetricKind::Fan => fan_color(val as u16),
-                        };
-                        caret_spans.push(Span::styled("▼", Style::default().fg(color)));
-                    } else {
-                        caret_spans.push(Span::raw(" "));
-                    }
-                }
-                lines.push(Line::from(caret_spans));
-            }
-        }
-
         for visual_row in (0..chart_h).rev() {
             let mut spans = Vec::new();
-
             for &val in &buckets {
                 let norm = ((val - range_min) / (range_max - range_min)).clamp(0.0, 1.0);
                 let bar_top = norm * chart_h as f32;
@@ -439,8 +427,126 @@ impl TuiApp {
                     MetricKind::Temp => temp_color(val),
                     MetricKind::Fan => fan_color(val as u16),
                 };
-
                 spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
+            }
+            lines.push(Line::from(spans));
+        }
+
+        let para = Paragraph::new(lines).block(block);
+        f.render_widget(para, area);
+    }
+
+    fn render_historical_pane(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        label: &str,
+        kind: MetricKind,
+        sel_value: Option<String>,
+        left_gap: usize,
+        right_gap: usize,
+        vp_start: usize,
+        _max_off: usize,
+    ) {
+        if self.historical_data.is_empty() {
+            return;
+        }
+
+        let dummy_block = Block::default().borders(Borders::ALL);
+        let inner = dummy_block.inner(area);
+        let chart_w = inner.width.max(1) as usize;
+        let caret_h = 1;
+        let chart_h = inner.height.max(1).saturating_sub(caret_h) as usize;
+
+        let bar_count = chart_w.saturating_sub(left_gap).saturating_sub(right_gap);
+        let vp_end = (vp_start + bar_count).min(self.historical_data.len());
+        let bar_count = (vp_end.saturating_sub(vp_start)).min(bar_count);
+        let data_slice = &self.historical_data[vp_start..vp_end];
+
+        let bar_vals: Vec<f32> = data_slice.iter().map(|r| self.historical_col(r, kind)).collect();
+        let (range_min, range_max) = if bar_vals.is_empty() {
+            (0.0, 1.0)
+        } else {
+            let min = bar_vals.iter().cloned().fold(f32::MAX, f32::min);
+            let max = bar_vals.iter().cloned().fold(f32::MIN, f32::max);
+            (min, if max > min { max } else { min + 1.0 })
+        };
+
+        let decimated = if bar_count > 0 && !bar_vals.is_empty() {
+            chart::decimate(&bar_vals, bar_count)
+        } else {
+            vec![]
+        };
+        let dec_len = decimated.len();
+
+        let gap_val = range_min - (range_max - range_min).max(1.0);
+        let mut buckets = Vec::with_capacity(chart_w);
+        for _ in 0..left_gap { buckets.push(gap_val); }
+        buckets.extend(decimated);
+        for _ in 0..right_gap { buckets.push(gap_val); }
+
+        let vis_col = if self.selection >= vp_start && self.selection < vp_end {
+            let col_in_raw = self.selection - vp_start;
+            let col_in_bar = if bar_vals.is_empty() { 0 } else {
+                (col_in_raw as f32 * bar_count as f32 / bar_vals.len() as f32) as usize
+            };
+            (left_gap + col_in_bar).min(chart_w.saturating_sub(1))
+        } else if self.selection >= vp_end {
+            (left_gap + bar_count.saturating_sub(1)).min(chart_w.saturating_sub(1))
+        } else {
+            left_gap
+        };
+
+        let title = if let Some(ref sv) = sel_value {
+            format!("{}: {}", label, sv)
+        } else {
+            format!("{}: --", label)
+        };
+        let block = Block::default().title(title).borders(Borders::ALL);
+
+        let mut lines = Vec::new();
+
+        // Caret row
+        {
+            let mut caret_spans = Vec::new();
+            for i in 0..chart_w {
+                if i == vis_col {
+                    let color = if i >= left_gap && i < left_gap + dec_len {
+                        let val = buckets[i];
+                        match kind {
+                            MetricKind::Usage => usage_color(val),
+                            MetricKind::Temp => temp_color(val),
+                            MetricKind::Fan => fan_color(val as u16),
+                        }
+                    } else {
+                        Color::White
+                    };
+                    caret_spans.push(Span::styled("▼", Style::default().fg(color)));
+                } else {
+                    caret_spans.push(Span::raw(" "));
+                }
+            }
+            lines.push(Line::from(caret_spans));
+        }
+
+        // Bar rows
+        for visual_row in (0..chart_h).rev() {
+            let mut spans = Vec::new();
+            for &val in &buckets {
+                if val <= gap_val + 0.1 {
+                    spans.push(Span::raw(" "));
+                } else {
+                    let norm = ((val - range_min) / (range_max - range_min)).clamp(0.0, 1.0);
+                    let bar_top = norm * chart_h as f32;
+                    let fill = (bar_top - visual_row as f32).clamp(0.0, 1.0);
+                    let ch = BLOCKS[(fill * 8.0).round() as usize];
+                    let color = match kind {
+                        MetricKind::Usage => usage_color(val),
+                        MetricKind::Temp => temp_color(val),
+                        MetricKind::Fan => fan_color(val as u16),
+                    };
+                    spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
+                }
             }
             lines.push(Line::from(spans));
         }
@@ -455,10 +561,6 @@ impl TuiApp {
         latest: &MetricSample,
         kind: MetricKind,
     ) -> (f32, Vec<f32>, f32, f32) {
-        if self.timeframe != TimeFrame::Live {
-            return self.extract_historical_bars(chart_w, latest, kind);
-        }
-
         match kind {
             MetricKind::Usage => {
                 let cur = self.current_val(latest, |t| t.cpu_usage, 0.0);
@@ -476,47 +578,6 @@ impl TuiApp {
                 let floor = FAN_MIN_RPM as f32 * 0.9;
                 (cur as f32, vals, floor, FAN_MAX_RPM as f32)
             }
-        }
-    }
-
-    fn extract_historical_bars(
-        &self,
-        chart_w: usize,
-        _latest: &MetricSample,
-        kind: MetricKind,
-    ) -> (f32, Vec<f32>, f32, f32) {
-        let len = self.historical_data.len();
-        let max_off = len.saturating_sub(chart_w);
-        let offset = self.scroll_offset.min(max_off);
-        let start = max_off - offset;
-        let end = (start + chart_w).min(len);
-
-        let values: Vec<f32> = self.historical_data[start..end]
-            .iter()
-            .map(|r| self.historical_col(r, kind))
-            .collect();
-
-        let cur = values.last().copied().unwrap_or(0.0);
-
-        match kind {
-            MetricKind::Usage => (cur, values, 0.0, 100.0),
-            MetricKind::Temp => (cur, values, 0.0, 100.0),
-            MetricKind::Fan => {
-                let floor = FAN_MIN_RPM as f32 * 0.9;
-                (cur, values, floor, FAN_MAX_RPM as f32)
-            }
-        }
-    }
-
-    fn historical_col(&self, row: &HistoricalRow, kind: MetricKind) -> f32 {
-        match (self.mode, kind) {
-            (DisplayMode::Max, MetricKind::Usage) => row.usage_max,
-            (DisplayMode::Min, MetricKind::Usage) => row.usage_min,
-            (_, MetricKind::Usage) => row.usage_mean,
-            (DisplayMode::Max, MetricKind::Temp) => row.temp_max,
-            (DisplayMode::Min, MetricKind::Temp) => row.temp_min,
-            (_, MetricKind::Temp) => row.temp_mean,
-            (_, MetricKind::Fan) => row.rpm_mean,
         }
     }
 
@@ -583,6 +644,18 @@ impl TuiApp {
             DisplayMode::Min => iter.fold(f32::MAX, f32::min),
             DisplayMode::Max => iter.fold(f32::MIN, f32::max),
             DisplayMode::Raw => unreachable!(),
+        }
+    }
+
+    fn historical_col(&self, row: &HistoricalRow, kind: MetricKind) -> f32 {
+        match (self.mode, kind) {
+            (DisplayMode::Max, MetricKind::Usage) => row.usage_max,
+            (DisplayMode::Min, MetricKind::Usage) => row.usage_min,
+            (_, MetricKind::Usage) => row.usage_mean,
+            (DisplayMode::Max, MetricKind::Temp) => row.temp_max,
+            (DisplayMode::Min, MetricKind::Temp) => row.temp_min,
+            (_, MetricKind::Temp) => row.temp_mean,
+            (_, MetricKind::Fan) => row.rpm_mean,
         }
     }
 
