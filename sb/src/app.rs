@@ -1,3 +1,4 @@
+use chrono::{Local, TimeZone};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -278,7 +279,7 @@ impl TuiApp {
             })
         };
 
-        let (sel_data, sel_col) = if self.timeframe != TimeFrame::Live {
+        let (time_str, sel_col) = if self.timeframe != TimeFrame::Live {
             let chart_w = chunks[0].width.saturating_sub(2) as usize;
             let data_len = self.historical_data.len();
             let max_off = data_len.saturating_sub(chart_w);
@@ -298,30 +299,34 @@ impl TuiApp {
 
             let vp_start = max_off.saturating_sub(self.scroll_offset);
             let col = self.selection.saturating_sub(vp_start);
-            let s = self.historical_data.get(self.selection).map(|r| {
-                (r.timestamp, self.historical_col(r, MetricKind::Usage),
-                 self.historical_col(r, MetricKind::Temp),
-                 self.historical_col(r, MetricKind::Fan), max_off)
-            });
-            (s, Some(col))
+            let ts = self.historical_data.get(self.selection).map(|r| r.timestamp);
+            let time = ts.map(|t| {
+                Local.timestamp_opt(t, 0).single().map(|dt| dt.format("%H:%M").to_string()).unwrap_or_default()
+            }).unwrap_or_default();
+            let display = format!("{time}  ← {}/{max_off} →", self.scroll_offset);
+            (Some(display), Some(col))
         } else {
             (None, None)
         };
 
-        self.render_metric_pane(f, chunks[0], "CPU Usage", latest, sel_col, MetricKind::Usage);
-        self.render_metric_pane(f, chunks[1], "CPU Temp", latest, sel_col, MetricKind::Temp);
-        self.render_metric_pane(f, chunks[2], "Fan", latest, sel_col, MetricKind::Fan);
+        let sel_usage = if self.timeframe != TimeFrame::Live {
+            self.historical_data.get(self.selection).map(|r| format!("{:.1}%", self.historical_col(r, MetricKind::Usage)))
+        } else { None };
+        let sel_temp = if self.timeframe != TimeFrame::Live {
+            self.historical_data.get(self.selection).map(|r| format!("{:.1}°C", self.historical_col(r, MetricKind::Temp)))
+        } else { None };
+        let sel_fan = if self.timeframe != TimeFrame::Live {
+            self.historical_data.get(self.selection).map(|r| {
+                let pwm_pct = (r.pwm_mean / 255.0 * 100.0) as u8;
+                format!("{} RPM ({}%)", r.rpm_mean as u16, pwm_pct)
+            })
+        } else { None };
 
-        let scroll = if let Some((ts, usage, temp, fan, max_off)) = sel_data {
-            let hh = ts / 3600 % 24;
-            let mm = ts / 60 % 60;
-            format!(
-                "  {:02}:{:02} U:{:.0}% T:{:.0}°C F:{}RPM  ← {}/{} →",
-                hh, mm, usage, temp, fan as u16, self.scroll_offset, max_off,
-            )
-        } else {
-            String::new()
-        };
+        self.render_metric_pane(f, chunks[0], "CPU Usage", latest, sel_col, sel_usage, MetricKind::Usage);
+        self.render_metric_pane(f, chunks[1], "CPU Temp", latest, sel_col, sel_temp, MetricKind::Temp);
+        self.render_metric_pane(f, chunks[2], "Fan", latest, sel_col, sel_fan, MetricKind::Fan);
+
+        let scroll = time_str.unwrap_or_default();
 
         let mode_label = if self.timeframe == TimeFrame::Live {
             self.mode.label()
@@ -345,6 +350,7 @@ impl TuiApp {
         label: &str,
         latest: Option<MetricSample>,
         sel_col: Option<usize>,
+        sel_value: Option<String>,
         kind: MetricKind,
     ) {
         let Some(s) = latest else { return };
@@ -357,12 +363,16 @@ impl TuiApp {
 
         let (cur_val, values, range_min, range_max) = self.extract_bars(chart_w, &s, kind);
 
-        let title = match kind {
-            MetricKind::Usage => format!("{}: {:.1}%", label, cur_val),
-            MetricKind::Temp => format!("{}: {:.1}°C", label, cur_val),
-            MetricKind::Fan => {
-                let pwm_pct = (s.pwm_value as f32 / 255.0 * 100.0) as u8;
-                format!("{}: {} RPM ({}%)", label, cur_val as u16, pwm_pct)
+        let title = if let Some(ref sv) = sel_value {
+            format!("{}: {}", label, sv)
+        } else {
+            match kind {
+                MetricKind::Usage => format!("{}: {:.1}%", label, cur_val),
+                MetricKind::Temp => format!("{}: {:.1}°C", label, cur_val),
+                MetricKind::Fan => {
+                    let pwm_pct = (s.pwm_value as f32 / 255.0 * 100.0) as u8;
+                    format!("{}: {} RPM ({}%)", label, cur_val as u16, pwm_pct)
+                }
             }
         };
         let block = Block::default().title(title).borders(Borders::ALL);
