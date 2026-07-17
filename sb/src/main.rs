@@ -5,6 +5,7 @@ use crate::app::TuiApp;
 mod app;
 mod chart;
 mod client;
+mod historical;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();

@@ -1,16 +1,16 @@
 pub fn decimate(values: &[f32], width: usize) -> Vec<f32> {
-    if values.is_empty() || width == 0 {
+    let n = values.len();
+    if n == 0 || width == 0 {
         return vec![];
     }
 
-    let bucket_size = (values.len() as f32 / width as f32).ceil() as usize;
-
     (0..width)
         .map(|i| {
-            let start = i * bucket_size;
-            let end = ((i + 1) * bucket_size).min(values.len());
-            if start >= values.len() {
-                return 0.0;
+            let start = ((i as f64 * n as f64) / width as f64).floor() as usize;
+            let end = (((i + 1) as f64 * n as f64) / width as f64).ceil() as usize;
+            let end = end.max(start + 1).min(n);
+            if start >= n {
+                return values[n - 1];
             }
             values[start..end]
                 .iter()
