@@ -43,29 +43,31 @@ impl TimeFrame {
 }
 
 pub struct TuiApp {
-    socket_path:     String,
-    live_ticks:      VecDeque<MetricSample>,
-    historical_data:  Vec<HistoricalRow>,
-    snapshot:        Option<Snapshot>,
-    mode:            DisplayMode,
-    timeframe:       TimeFrame,
-    selection:       usize,
-    key_repeat:      Option<(KeyCode, u32)>,
-    last_key_time:   Instant,
+    socket_path: String,
+    live_ticks: VecDeque<MetricSample>,
+    historical_data: Vec<HistoricalRow>,
+    snapshot: Option<Snapshot>,
+    mode: DisplayMode,
+    timeframe: TimeFrame,
+    selection: usize,
+    caret_col: usize,
+    key_repeat: Option<(KeyCode, u32)>,
+    last_key_time: Instant,
 }
 
 impl TuiApp {
     pub fn new(socket_path: String) -> Self {
         TuiApp {
             socket_path,
-            live_ticks:      VecDeque::with_capacity(MAX_LIVE_SAMPLES),
-            historical_data:  Vec::new(),
-            snapshot:        None,
-            mode:            DisplayMode::Raw,
-            timeframe:       TimeFrame::Live,
-            selection:       0,
-            key_repeat:      None,
-            last_key_time:   Instant::now(),
+            live_ticks: VecDeque::with_capacity(MAX_LIVE_SAMPLES),
+            historical_data: Vec::new(),
+            snapshot: None,
+            mode: DisplayMode::Raw,
+            timeframe: TimeFrame::Live,
+            selection: 0,
+            caret_col: 0,
+            key_repeat: None,
+            last_key_time: Instant::now(),
         }
     }
 
@@ -100,7 +102,9 @@ impl TuiApp {
             terminal.draw(|f| self.render(f))?;
 
             let timeout = if self.timeframe == TimeFrame::Live {
-                tick_rate.checked_sub(last_tick.elapsed()).unwrap_or(Duration::ZERO)
+                tick_rate
+                    .checked_sub(last_tick.elapsed())
+                    .unwrap_or(Duration::ZERO)
             } else {
                 Duration::from_secs(60)
             };
@@ -126,11 +130,13 @@ impl TuiApp {
                                     return Ok(());
                                 }
                                 self.selection = self.historical_data.len().saturating_sub(1);
+                                self.caret_col = usize::MAX;
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
                                     let step = self.advance_repeat(KeyCode::Left);
                                     self.selection = self.selection.saturating_sub(step);
+                                    self.caret_col = self.caret_col.saturating_sub(step);
                                 }
                             }
                             KeyCode::Right => {
@@ -139,9 +145,12 @@ impl TuiApp {
                                     let data_len = self.historical_data.len();
                                     self.selection =
                                         (self.selection + step).min(data_len.saturating_sub(1));
+                                    self.caret_col = self.caret_col.saturating_add(step);
                                 }
                             }
-                            _ => { self.key_repeat = None; }
+                            _ => {
+                                self.key_repeat = None;
+                            }
                         }
                     }
                 }
@@ -192,15 +201,16 @@ impl TuiApp {
             crate::client::request_historical(&mut conn, bucket_secs, 2000).await?;
         self.timeframe = new;
         self.selection = self.historical_data.len().saturating_sub(1);
+        self.caret_col = usize::MAX; // clamp in next render
         Ok(())
     }
 
     fn arrow_step(count: u32) -> usize {
         match count {
-            1..=8  => 1,
+            1..=8 => 1,
             9..=25 => 2,
             26..=60 => 5,
-            _      => 8,
+            _ => 8,
         }
     }
 
@@ -239,22 +249,36 @@ impl TuiApp {
         } else {
             self.historical_data.last().map(|r| MetricSample {
                 timestamp: r.timestamp,
-                cpu_temp:  r.temp_mean,
+                cpu_temp: r.temp_mean,
                 cpu_usage: r.usage_mean,
-                fan_rpm:   r.rpm_mean as u16,
+                fan_rpm: r.rpm_mean as u16,
                 pwm_value: r.pwm_mean as u8,
             })
         };
 
         // ── historical ────────────────────────────────────────────────
         let (time_str, hist) = if self.timeframe != TimeFrame::Live {
-            let chart_w  = chunks[0].width.saturating_sub(2) as usize;
+            let chart_w = chunks[0].width.saturating_sub(2) as usize;
             let data_len = self.historical_data.len();
-            let hs = HistState::new(data_len, self.selection, chart_w);
+            let margin = (chart_w / 10).max(1);
+            let old_caret = self.caret_col;
+            self.caret_col = self
+                .caret_col
+                .clamp(margin, chart_w.saturating_sub(margin + 1));
+            // eprintln!(
+            //     "render: chart_w={chart_w} margin={margin} caret_col {old_caret}→{} select={}",
+            //     self.caret_col, self.selection
+            // );
 
-            let ts = self.historical_data.get(self.selection)
+            let hs = HistState::new(data_len, self.selection, self.caret_col, chart_w);
+
+            let ts = self
+                .historical_data
+                .get(self.selection)
                 .and_then(|r| {
-                    Local.timestamp_opt(r.timestamp, 0).single()
+                    Local
+                        .timestamp_opt(r.timestamp, 0)
+                        .single()
                         .map(|dt| dt.format("%H:%M").to_string())
                 })
                 .unwrap_or_default();
@@ -264,19 +288,50 @@ impl TuiApp {
             (None, None)
         };
 
-        let sel_usage = self.historical_data.get(self.selection)
-            .map(|r| format!("{:.1}%", historical::historical_col(self.mode, r, MetricKind::Usage)));
-        let sel_temp = self.historical_data.get(self.selection)
-            .map(|r| format!("{:.1}°C", historical::historical_col(self.mode, r, MetricKind::Temp)));
-        let sel_fan = self.historical_data.get(self.selection)
-            .map(|r| {
-                let pwm_pct = (r.pwm_mean / 255.0 * 100.0) as u8;
-                format!("{} RPM ({}%)", r.rpm_mean as u16, pwm_pct)
-            });
+        let sel_usage = self.historical_data.get(self.selection).map(|r| {
+            format!(
+                "{:.1}%",
+                historical::historical_col(self.mode, r, MetricKind::Usage)
+            )
+        });
+        let sel_temp = self.historical_data.get(self.selection).map(|r| {
+            format!(
+                "{:.1}°C",
+                historical::historical_col(self.mode, r, MetricKind::Temp)
+            )
+        });
+        let sel_fan = self.historical_data.get(self.selection).map(|r| {
+            let pwm_pct = (r.pwm_mean / 255.0 * 100.0) as u8;
+            format!("{} RPM ({}%)", r.rpm_mean as u16, pwm_pct)
+        });
 
-        self.render_metric_pane(f, chunks[0], "CPU Usage", latest, hist.as_ref(), sel_usage, MetricKind::Usage);
-        self.render_metric_pane(f, chunks[1], "CPU Temp",  latest, hist.as_ref(), sel_temp,  MetricKind::Temp);
-        self.render_metric_pane(f, chunks[2], "Fan",       latest, hist.as_ref(), sel_fan,   MetricKind::Fan);
+        self.render_metric_pane(
+            f,
+            chunks[0],
+            "CPU Usage",
+            latest,
+            hist.as_ref(),
+            sel_usage,
+            MetricKind::Usage,
+        );
+        self.render_metric_pane(
+            f,
+            chunks[1],
+            "CPU Temp",
+            latest,
+            hist.as_ref(),
+            sel_temp,
+            MetricKind::Temp,
+        );
+        self.render_metric_pane(
+            f,
+            chunks[2],
+            "Fan",
+            latest,
+            hist.as_ref(),
+            sel_fan,
+            MetricKind::Fan,
+        );
 
         let scroll_status = time_str.unwrap_or_default();
         let mode_label = if self.timeframe == TimeFrame::Live {
@@ -295,52 +350,60 @@ impl TuiApp {
 
     fn render_metric_pane(
         &self,
-        f:        &mut Frame,
-        area:     Rect,
-        label:    &str,
-        latest:   Option<MetricSample>,
-        hs:       Option<&HistState>,
+        f: &mut Frame,
+        area: Rect,
+        label: &str,
+        latest: Option<MetricSample>,
+        hs: Option<&HistState>,
         sel_value: Option<String>,
-        kind:     MetricKind,
+        kind: MetricKind,
     ) {
         if let Some(h) = hs {
             historical::render_pane(
-                f, area, label, h, sel_value, kind, self.mode, &self.historical_data,
+                f,
+                area,
+                label,
+                h,
+                self.caret_col,
+                sel_value,
+                kind,
+                self.mode,
+                &self.historical_data,
             );
             return;
         }
 
         let Some(s) = latest else { return };
 
-        let inner   = Block::default().borders(Borders::ALL).inner(area);
+        let inner = Block::default().borders(Borders::ALL).inner(area);
         let chart_w = inner.width.max(1) as usize;
         let chart_h = inner.height.max(1) as usize;
 
         let (cur_val, values, range_min, range_max) = self.extract_bars(chart_w, &s, kind);
 
         let title = match kind {
-            MetricKind::Usage => format!("{label}: {:.1}%",  cur_val),
-            MetricKind::Temp  => format!("{label}: {:.1}°C", cur_val),
-            MetricKind::Fan   => {
+            MetricKind::Usage => format!("{label}: {:.1}%", cur_val),
+            MetricKind::Temp => format!("{label}: {:.1}°C", cur_val),
+            MetricKind::Fan => {
                 let pwm_pct = (s.pwm_value as f32 / 255.0 * 100.0) as u8;
                 format!("{label}: {} RPM ({}%)", cur_val as u16, pwm_pct)
             }
         };
-        let block   = Block::default().title(title).borders(Borders::ALL);
+        let block = Block::default().title(title).borders(Borders::ALL);
         let buckets = chart::decimate(&values, chart_w);
 
         let mut lines = Vec::new();
         for visual_row in (0..chart_h).rev() {
             let mut spans = Vec::new();
             for &val in &buckets {
-                let norm    = ((val - range_min) / (range_max - range_min)).clamp(0.0, 1.0);
+                let norm = ((val - range_min) / (range_max - range_min)).clamp(0.0, 1.0);
                 let bar_top = norm * chart_h as f32;
-                let fill    = (bar_top - visual_row as f32).clamp(0.0, 1.0);
-                let ch      = BLOCKS[(fill * 8.0).round() as usize];
+                let fill = (bar_top - visual_row as f32).clamp(0.0, 1.0);
+                let ch = BLOCKS[(fill * 8.0).round() as usize];
                 let color = match kind {
                     MetricKind::Usage => historical::usage_color(val),
-                    MetricKind::Temp  => historical::temp_color(val),
-                    MetricKind::Fan   => historical::fan_color(val as u16),
+                    MetricKind::Temp => historical::temp_color(val),
+                    MetricKind::Fan => historical::fan_color(val as u16),
                 };
                 spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
             }
@@ -351,23 +414,26 @@ impl TuiApp {
 
     // ── live data helpers ──────────────────────────────────────────────
 
-    fn extract_bars(&self, chart_w: usize, latest: &MetricSample, kind: MetricKind)
-        -> (f32, Vec<f32>, f32, f32)
-    {
+    fn extract_bars(
+        &self,
+        chart_w: usize,
+        latest: &MetricSample,
+        kind: MetricKind,
+    ) -> (f32, Vec<f32>, f32, f32) {
         match kind {
             MetricKind::Usage => {
-                let cur  = self.current_val(latest, |t| t.cpu_usage, 0.0);
+                let cur = self.current_val(latest, |t| t.cpu_usage, 0.0);
                 let vals = self.build_values(chart_w, |t| t.cpu_usage);
                 (cur, vals, 0.0, 100.0)
             }
             MetricKind::Temp => {
-                let cur  = self.current_val(latest, |t| t.cpu_temp, 0.0);
+                let cur = self.current_val(latest, |t| t.cpu_temp, 0.0);
                 let vals = self.build_values(chart_w, |t| t.cpu_temp);
                 (cur, vals, 0.0, 100.0)
             }
             MetricKind::Fan => {
-                let cur   = latest.fan_rpm;
-                let vals  = self.build_values(chart_w, |t| t.fan_rpm as f32);
+                let cur = latest.fan_rpm;
+                let vals = self.build_values(chart_w, |t| t.fan_rpm as f32);
                 let floor = FAN_MIN_RPM as f32 * 0.9;
                 (cur as f32, vals, floor, FAN_MAX_RPM as f32)
             }
@@ -375,7 +441,8 @@ impl TuiApp {
     }
 
     fn current_val<F>(&self, latest: &MetricSample, extract: F, _default: f32) -> f32
-    where F: Fn(&MetricSample) -> f32
+    where
+        F: Fn(&MetricSample) -> f32,
     {
         match self.mode {
             DisplayMode::Raw => extract(latest),
@@ -384,7 +451,8 @@ impl TuiApp {
     }
 
     fn build_values<F>(&self, chart_w: usize, extract: F) -> Vec<f32>
-    where F: Fn(&MetricSample) -> f32
+    where
+        F: Fn(&MetricSample) -> f32,
     {
         let all: Vec<f32> = (0..self.live_ticks.len())
             .map(|i| {
@@ -395,36 +463,41 @@ impl TuiApp {
                 }
             })
             .collect();
-        let len   = all.len();
+        let len = all.len();
         let start = len.saturating_sub(chart_w);
-        let end   = (start + chart_w).min(len);
+        let end = (start + chart_w).min(len);
         all[start..end].to_vec()
     }
 
     fn window_10s_at<F>(&self, idx: usize, extract: &F) -> f32
-    where F: Fn(&MetricSample) -> f32
+    where
+        F: Fn(&MetricSample) -> f32,
     {
         let window = 10;
-        let start  = idx.saturating_sub(window - 1);
-        let count  = (idx + 1 - start).min(window);
-        if count == 0 { return 0.0; }
-        let iter = self.live_ticks.iter().skip(start).take(count).map(|s| extract(s));
+        let start = idx.saturating_sub(window - 1);
+        let count = (idx + 1 - start).min(window);
+        if count == 0 {
+            return 0.0;
+        }
+        let iter = self
+            .live_ticks
+            .iter()
+            .skip(start)
+            .take(count)
+            .map(|s| extract(s));
         match self.mode {
-            DisplayMode::MA  => { let sum: f32 = iter.sum(); sum / count as f32 }
+            DisplayMode::MA => {
+                let sum: f32 = iter.sum();
+                sum / count as f32
+            }
             DisplayMode::Min => iter.fold(f32::MAX, f32::min),
             DisplayMode::Max => iter.fold(f32::MIN, f32::max),
             DisplayMode::Raw => unreachable!(),
         }
     }
 
-    fn render_disconnected(
-        &self,
-        mut terminal: DefaultTerminal,
-        err: &str,
-    ) -> anyhow::Result<()> {
-        let msg = format!(
-            "Cannot connect to sb-daemon.\n\nError: {err}\n\nPress any key to exit."
-        );
+    fn render_disconnected(&self, mut terminal: DefaultTerminal, err: &str) -> anyhow::Result<()> {
+        let msg = format!("Cannot connect to sb-daemon.\n\nError: {err}\n\nPress any key to exit.");
         terminal.draw(|f| {
             let block = Block::default()
                 .title("sb — SteadyBearing")

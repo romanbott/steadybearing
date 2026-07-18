@@ -11,36 +11,49 @@ use crate::chart;
 const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 // ── viewport state ──────────────────────────────────────────────────
+//
+//  selection    = data index the caret points at
+//  desired_col  = user-requested visual column of the caret
+//
+//  vp_start     = (selection − desired_col).clamp(0, max_off)
+//  Everything else follows from vp_start + chart_w.
 
 pub struct HistState {
-    pub vp_start:      usize,
-    pub left_gap:      usize,
-    pub right_gap:     usize,
-    pub bar_count:     usize,
-    pub vp_end:        usize,
+    pub vp_start: usize,
+    pub left_gap: usize,
+    pub right_gap: usize,
+    pub bar_count: usize,
+    pub vp_end: usize,
     pub scroll_offset: usize,
-    pub max_off:       usize,
-    pub caret_col:     usize,
+    pub max_off: usize,
 }
 
 impl HistState {
-    pub fn new(data_len: usize, selection: usize, chart_w: usize) -> Self {
-        let margin    = (chart_w / 10).max(1);
-        let max_off   = data_len.saturating_sub(chart_w);
-        let vp_start  = (selection.saturating_sub(margin)).min(max_off);
-        let caret_col = selection.saturating_sub(vp_start);
-        let scroll    = max_off.saturating_sub(vp_start);
-        let left_gap  = margin.saturating_sub(vp_start);
+    pub fn new(data_len: usize, selection: usize, desired_col: usize, chart_w: usize) -> Self {
+        let margin = (chart_w / 10).max(1);
+        let max_off = data_len.saturating_sub(chart_w);
+        let vp_start = (selection.saturating_sub(desired_col)).min(max_off);
+        let scroll = max_off.saturating_sub(vp_start);
+        let left_gap = margin.saturating_sub(vp_start);
         let right_gap = margin.saturating_sub(scroll);
-        let bar_count = chart_w
-            .saturating_sub(left_gap)
-            .saturating_sub(right_gap);
+        let bar_count = chart_w.saturating_sub(left_gap).saturating_sub(right_gap);
         let data_cnt = chart_w.saturating_sub(left_gap);
-        let vp_end   = (vp_start + data_cnt).min(data_len);
+        let vp_end = (vp_start + data_cnt).min(data_len);
+
+        // eprintln!(
+        //     "HistState: margin={margin} max_off={max_off} chart_w={chart_w} data_len={data_len}\n\
+        //      \x20  selection={selection} desired_col={desired_col} vp_start={vp_start}\n\
+        //      \x20  scroll={scroll} left_gap={left_gap} right_gap={right_gap} bar_count={bar_count} vp_end={vp_end}"
+        // );
 
         HistState {
-            vp_start, left_gap, right_gap, bar_count, vp_end,
-            scroll_offset: scroll, max_off, caret_col,
+            vp_start,
+            left_gap,
+            right_gap,
+            bar_count,
+            vp_end,
+            scroll_offset: scroll,
+            max_off,
         }
     }
 }
@@ -135,31 +148,32 @@ pub fn historical_col(mode: DisplayMode, row: &HistoricalRow, kind: MetricKind) 
     match (mode, kind) {
         (DisplayMode::Max, MetricKind::Usage) => row.usage_max,
         (DisplayMode::Min, MetricKind::Usage) => row.usage_min,
-        (_,                MetricKind::Usage) => row.usage_mean,
-        (DisplayMode::Max, MetricKind::Temp)  => row.temp_max,
-        (DisplayMode::Min, MetricKind::Temp)  => row.temp_min,
-        (_,                MetricKind::Temp)  => row.temp_mean,
-        (_,                MetricKind::Fan)   => row.rpm_mean,
+        (_, MetricKind::Usage) => row.usage_mean,
+        (DisplayMode::Max, MetricKind::Temp) => row.temp_max,
+        (DisplayMode::Min, MetricKind::Temp) => row.temp_min,
+        (_, MetricKind::Temp) => row.temp_mean,
+        (_, MetricKind::Fan) => row.rpm_mean,
     }
 }
 
 // ── rendering ────────────────────────────────────────────────────────
 
 pub fn render_pane(
-    f:         &mut Frame,
-    area:      Rect,
-    label:     &str,
-    hs:        &HistState,
-    sel_value:  Option<String>,
-    kind:      MetricKind,
-    mode:      DisplayMode,
-    data:      &[HistoricalRow],
+    f: &mut Frame,
+    area: Rect,
+    label: &str,
+    hs: &HistState,
+    caret_col: usize,
+    sel_value: Option<String>,
+    kind: MetricKind,
+    mode: DisplayMode,
+    data: &[HistoricalRow],
 ) {
     if data.is_empty() {
         return;
     }
 
-    let inner   = Block::default().borders(Borders::ALL).inner(area);
+    let inner = Block::default().borders(Borders::ALL).inner(area);
     let chart_w = inner.width.max(1) as usize;
     let caret_h = 1;
     let chart_h = inner.height.max(1).saturating_sub(caret_h) as usize;
@@ -195,7 +209,7 @@ pub fn render_pane(
         buckets.push(gap_val);
     }
 
-    let vis_col = hs.caret_col.min(chart_w.saturating_sub(1));
+    let vis_col = caret_col.min(chart_w.saturating_sub(1));
 
     let title = if let Some(ref sv) = sel_value {
         format!("{label}: {sv}")
@@ -214,8 +228,8 @@ pub fn render_pane(
                     let val = buckets[i];
                     match kind {
                         MetricKind::Usage => usage_color(val),
-                        MetricKind::Temp  => temp_color(val),
-                        MetricKind::Fan   => fan_color(val as u16),
+                        MetricKind::Temp => temp_color(val),
+                        MetricKind::Fan => fan_color(val as u16),
                     }
                 } else {
                     Color::White
@@ -241,8 +255,8 @@ pub fn render_pane(
                 let ch = BLOCKS[(fill * 8.0).round() as usize];
                 let color = match kind {
                     MetricKind::Usage => usage_color(val),
-                    MetricKind::Temp  => temp_color(val),
-                    MetricKind::Fan   => fan_color(val as u16),
+                    MetricKind::Temp => temp_color(val),
+                    MetricKind::Fan => fan_color(val as u16),
                 };
                 spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
             }
