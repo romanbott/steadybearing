@@ -9,12 +9,22 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
-use sb_protocol::types::{HistoricalRow, MetricSample, Snapshot, FAN_MAX_RPM, FAN_MIN_RPM};
+use sb_protocol::types::{HistoricalRow, MetricSample, FAN_MAX_RPM, FAN_MIN_RPM};
 
 use crate::chart;
 use crate::historical::{self, DisplayMode, HistState, MetricKind};
 
-const MAX_LIVE_SAMPLES: usize = 3600;
+const MAX_LIVE_SAMPLES: usize = 3600;    // 1 hour at 1 Hz
+const TICK_RATE_MS: u64 = 100;
+const HISTORICAL_POLL_SECS: u64 = 60;
+const REPEAT_GRACE_MS: u64 = 500;
+const ARROW_SLOW: u32 = 8;       // 1..=8  → step 1
+const ARROW_MED: u32 = 25;       // 9..=25 → step 2
+const ARROW_FAST: u32 = 60;      // 26..=60 → step 5 (above → step 8)
+const PWM_MAX: f32 = 255.0;
+const FAN_FLOOR_MULT: f32 = 0.9;
+const SMOOTH_WINDOW: usize = 10;
+
 const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,9 +55,8 @@ impl TimeFrame {
 pub struct TuiApp {
     socket_path: String,
     live_ticks: VecDeque<MetricSample>,
-    historical_data: Vec<HistoricalRow>,
-    snapshot: Option<Snapshot>,
-    mode: DisplayMode,
+    historical_data:  Vec<HistoricalRow>,
+    mode:            DisplayMode,
     timeframe: TimeFrame,
     selection:       usize,
     chart_w:         usize,
@@ -61,9 +70,8 @@ impl TuiApp {
         TuiApp {
             socket_path,
             live_ticks: VecDeque::with_capacity(MAX_LIVE_SAMPLES),
-            historical_data: Vec::new(),
-            snapshot: None,
-            mode: DisplayMode::Raw,
+            historical_data:  Vec::new(),
+            mode:            DisplayMode::Raw,
             timeframe: TimeFrame::Live,
             selection:       0,
             chart_w:         0,
@@ -94,10 +102,9 @@ impl TuiApp {
         };
 
         self.live_ticks = std::mem::take(&mut snapshot.tier1).into();
-        self.snapshot = Some(snapshot);
         crate::client::request_stream_live(&mut framed).await?;
 
-        let tick_rate = Duration::from_millis(100);
+        let tick_rate = Duration::from_millis(TICK_RATE_MS);
         let mut last_tick = Instant::now();
 
         loop {
@@ -108,7 +115,7 @@ impl TuiApp {
                     .checked_sub(last_tick.elapsed())
                     .unwrap_or(Duration::ZERO)
             } else {
-                Duration::from_secs(60)
+                Duration::from_secs(HISTORICAL_POLL_SECS)
             };
 
             if event::poll(timeout)? {
@@ -191,7 +198,6 @@ impl TuiApp {
             *framed = crate::client::connect(&self.socket_path).await?;
             let mut snap = crate::client::request_snapshot(framed).await?;
             self.live_ticks = std::mem::take(&mut snap.tier1).into();
-            self.snapshot = Some(snap);
             self.timeframe = TimeFrame::Live;
             self.historical_data.clear();
             crate::client::request_stream_live(framed).await?;
@@ -215,9 +221,9 @@ impl TuiApp {
 
     fn arrow_step(count: u32) -> usize {
         match count {
-            1..=8 => 1,
-            9..=25 => 2,
-            26..=60 => 5,
+            1..=ARROW_SLOW => 1,
+            _ if count <= ARROW_MED  => 2,
+            _ if count <= ARROW_FAST => 5,
             _ => 8,
         }
     }
@@ -226,7 +232,7 @@ impl TuiApp {
         let now = Instant::now();
         let count = match self.key_repeat {
             Some((prev, c)) if prev == code => {
-                if now.duration_since(self.last_key_time) > Duration::from_millis(500) {
+                if now.duration_since(self.last_key_time) > Duration::from_millis(REPEAT_GRACE_MS) {
                     1
                 } else {
                     c + 1
@@ -271,10 +277,9 @@ impl TuiApp {
 
         // ── historical ────────────────────────────────────────────────
         let (time_str, hist) = if self.timeframe != TimeFrame::Live {
-            let chart_w = chunks[0].width.saturating_sub(2) as usize;
             let data_len = self.historical_data.len();
 
-            let hs = HistState::new(data_len, self.selection, self.caret_col, chart_w);
+            let hs = HistState::new(data_len, self.selection, self.caret_col, self.chart_w);
 
             let ts = self
                 .historical_data
@@ -305,7 +310,7 @@ impl TuiApp {
             )
         });
         let sel_fan = self.historical_data.get(self.selection).map(|r| {
-            let pwm_pct = (r.pwm_mean / 255.0 * 100.0) as u8;
+            let pwm_pct = (r.pwm_mean / PWM_MAX * 100.0) as u8;
             format!("{} RPM ({}%)", r.rpm_mean as u16, pwm_pct)
         });
 
@@ -389,7 +394,7 @@ impl TuiApp {
             MetricKind::Usage => format!("{label}: {:.1}%", cur_val),
             MetricKind::Temp => format!("{label}: {:.1}°C", cur_val),
             MetricKind::Fan => {
-                let pwm_pct = (s.pwm_value as f32 / 255.0 * 100.0) as u8;
+                let pwm_pct = (s.pwm_value as f32 / PWM_MAX * 100.0) as u8;
                 format!("{label}: {} RPM ({}%)", cur_val as u16, pwm_pct)
             }
         };
@@ -426,25 +431,25 @@ impl TuiApp {
     ) -> (f32, Vec<f32>, f32, f32) {
         match kind {
             MetricKind::Usage => {
-                let cur = self.current_val(latest, |t| t.cpu_usage, 0.0);
+                let cur = self.current_val(latest, |t| t.cpu_usage);
                 let vals = self.build_values(chart_w, |t| t.cpu_usage);
                 (cur, vals, 0.0, 100.0)
             }
             MetricKind::Temp => {
-                let cur = self.current_val(latest, |t| t.cpu_temp, 0.0);
+                let cur = self.current_val(latest, |t| t.cpu_temp);
                 let vals = self.build_values(chart_w, |t| t.cpu_temp);
                 (cur, vals, 0.0, 100.0)
             }
             MetricKind::Fan => {
                 let cur = latest.fan_rpm;
                 let vals = self.build_values(chart_w, |t| t.fan_rpm as f32);
-                let floor = FAN_MIN_RPM as f32 * 0.9;
+                let floor = FAN_MIN_RPM as f32 * FAN_FLOOR_MULT;
                 (cur as f32, vals, floor, FAN_MAX_RPM as f32)
             }
         }
     }
 
-    fn current_val<F>(&self, latest: &MetricSample, extract: F, _default: f32) -> f32
+    fn current_val<F>(&self, latest: &MetricSample, extract: F) -> f32
     where
         F: Fn(&MetricSample) -> f32,
     {
@@ -460,7 +465,7 @@ impl TuiApp {
     {
         let all: Vec<f32> = (0..self.live_ticks.len())
             .map(|i| {
-                if matches!(self.mode, DisplayMode::Raw) || self.timeframe != TimeFrame::Live {
+                if matches!(self.mode, DisplayMode::Raw) {
                     extract(&self.live_ticks[i])
                 } else {
                     self.window_10s_at(i, &extract)
@@ -477,7 +482,7 @@ impl TuiApp {
     where
         F: Fn(&MetricSample) -> f32,
     {
-        let window = 10;
+        let window = SMOOTH_WINDOW;
         let start = idx.saturating_sub(window - 1);
         let count = (idx + 1 - start).min(window);
         if count == 0 {
