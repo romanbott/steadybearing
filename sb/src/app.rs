@@ -320,7 +320,7 @@ impl TuiApp {
 
         let grid_secs = if self.show_grid {
             match self.timeframe {
-                TimeFrame::Live => None,
+                TimeFrame::Live => Some(60),
                 TimeFrame::Minute => Some(3600),
                 TimeFrame::Hourly => Some(86400),
             }
@@ -348,9 +348,10 @@ impl TuiApp {
             self.mode.label_historical()
         };
         let line = Line::from(format!(
-            " m: {}  t: {}{}  q: quit",
+            " m: {}  t: {}  g:{} {}  q: quit",
             mode_label,
             self.timeframe.label(),
+            if self.show_grid { "on" } else { "off" },
             scroll_status,
         ));
         f.render_widget(line, chunks[3]);
@@ -389,7 +390,7 @@ impl TuiApp {
         let chart_w = inner.width.max(1) as usize;
         let chart_h = inner.height.max(1) as usize;
 
-        let (cur_val, values, range_min, range_max) = self.extract_bars(chart_w, &s, kind);
+        let (cur_val, values, timestamps, range_min, range_max) = self.extract_bars(chart_w, &s, kind);
 
         let title = match kind {
             MetricKind::Usage => format!("{label}: {:.1}%", cur_val),
@@ -402,9 +403,14 @@ impl TuiApp {
         let block = Block::default().title(title).borders(Borders::ALL);
         let buckets = chart::decimate(&values, chart_w);
 
-        let lines = render::paint_bars(
-            &buckets, range_min, range_max, chart_h, None, kind,
-        );
+        let lines = if grid_secs.is_some() {
+            render::paint_bars_grid(
+                &buckets, range_min, range_max, chart_h, kind,
+                &timestamps,
+            )
+        } else {
+            render::paint_bars(&buckets, range_min, range_max, chart_h, None, kind)
+        };
         f.render_widget(Paragraph::new(lines).block(block), area);
     }
 
@@ -415,23 +421,26 @@ impl TuiApp {
         chart_w: usize,
         latest: &MetricSample,
         kind: MetricKind,
-    ) -> (f32, Vec<f32>, f32, f32) {
+    ) -> (f32, Vec<f32>, Vec<i64>, f32, f32) {
         match kind {
             MetricKind::Usage => {
                 let cur = self.current_val(latest, |t| t.cpu_usage);
-                let vals = self.build_values(chart_w, |t| t.cpu_usage);
-                (cur, vals, 0.0, 100.0)
+                let (vals, start) = self.build_values(chart_w, |t| t.cpu_usage);
+                let tss = self.build_timestamps(start, chart_w);
+                (cur, vals, tss, 0.0, 100.0)
             }
             MetricKind::Temp => {
                 let cur = self.current_val(latest, |t| t.cpu_temp);
-                let vals = self.build_values(chart_w, |t| t.cpu_temp);
-                (cur, vals, 0.0, 100.0)
+                let (vals, start) = self.build_values(chart_w, |t| t.cpu_temp);
+                let tss = self.build_timestamps(start, chart_w);
+                (cur, vals, tss, 0.0, 100.0)
             }
             MetricKind::Fan => {
                 let cur = latest.fan_rpm;
-                let vals = self.build_values(chart_w, |t| t.fan_rpm as f32);
+                let (vals, start) = self.build_values(chart_w, |t| t.fan_rpm as f32);
+                let tss = self.build_timestamps(start, chart_w);
                 let floor = FAN_MIN_RPM as f32 * FAN_FLOOR_MULT;
-                (cur as f32, vals, floor, FAN_MAX_RPM as f32)
+                (cur as f32, vals, tss, floor, FAN_MAX_RPM as f32)
             }
         }
     }
@@ -446,7 +455,7 @@ impl TuiApp {
         }
     }
 
-    fn build_values<F>(&self, chart_w: usize, extract: F) -> Vec<f32>
+    fn build_values<F>(&self, chart_w: usize, extract: F) -> (Vec<f32>, usize)
     where
         F: Fn(&MetricSample) -> f32,
     {
@@ -462,7 +471,13 @@ impl TuiApp {
         let len = all.len();
         let start = len.saturating_sub(chart_w);
         let end = (start + chart_w).min(len);
-        all[start..end].to_vec()
+        (all[start..end].to_vec(), start)
+    }
+
+    fn build_timestamps(&self, start: usize, chart_w: usize) -> Vec<i64> {
+        self.live_ticks.iter().skip(start).take(chart_w)
+            .map(|s| s.timestamp)
+            .collect()
     }
 
     fn window_10s_at<F>(&self, idx: usize, extract: &F) -> f32

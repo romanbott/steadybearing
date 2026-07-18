@@ -233,7 +233,7 @@ pub fn render_pane(
             let mid_val = (range_min + range_max) / 2.0;
             let q1_val = range_min + (range_max - range_min) * 0.25;
             let q3_val = range_min + (range_max - range_min) * 0.75;
-            for (row, val) in [(mid, mid_val), (q1, q1_val), (q3, q3_val)] {
+            for (row, val) in [(mid, mid_val), (q1, q3_val), (q3, q1_val)] {
                 let text = match kind {
                     MetricKind::Usage => format!("{:.0}%", val),
                     MetricKind::Temp  => format!("{:.0}°C", val),
