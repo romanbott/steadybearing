@@ -4,15 +4,15 @@ use std::time::{Duration, Instant};
 use chrono::{Local, TimeZone};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
 use sb_protocol::types::{HistoricalRow, MetricSample, FAN_MAX_RPM, FAN_MIN_RPM};
 
 use crate::chart;
-use crate::historical::{self, DisplayMode, HistState, MetricKind};
+use crate::historical::{self, DisplayMode, HistState};
+use crate::render::{self, MetricKind};
 
 const MAX_LIVE_SAMPLES: usize = 3600;    // 1 hour at 1 Hz
 const TICK_RATE_MS: u64 = 100;
@@ -24,8 +24,6 @@ const ARROW_FAST: u32 = 60;      // 26..=60 → step 5 (above → step 8)
 const PWM_MAX: f32 = 255.0;
 const FAN_FLOOR_MULT: f32 = 0.9;
 const SMOOTH_WINDOW: usize = 10;
-
-const BLOCKS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TimeFrame {
@@ -401,23 +399,9 @@ impl TuiApp {
         let block = Block::default().title(title).borders(Borders::ALL);
         let buckets = chart::decimate(&values, chart_w);
 
-        let mut lines = Vec::new();
-        for visual_row in (0..chart_h).rev() {
-            let mut spans = Vec::new();
-            for &val in &buckets {
-                let norm = ((val - range_min) / (range_max - range_min)).clamp(0.0, 1.0);
-                let bar_top = norm * chart_h as f32;
-                let fill = (bar_top - visual_row as f32).clamp(0.0, 1.0);
-                let ch = BLOCKS[(fill * 8.0).round() as usize];
-                let color = match kind {
-                    MetricKind::Usage => historical::usage_color(val),
-                    MetricKind::Temp => historical::temp_color(val),
-                    MetricKind::Fan => historical::fan_color(val as u16),
-                };
-                spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
-            }
-            lines.push(Line::from(spans));
-        }
+        let lines = render::paint_bars(
+            &buckets, range_min, range_max, chart_h, None, kind,
+        );
         f.render_widget(Paragraph::new(lines).block(block), area);
     }
 

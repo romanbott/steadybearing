@@ -6,6 +6,7 @@ mod app;
 mod chart;
 mod client;
 mod historical;
+mod render;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
