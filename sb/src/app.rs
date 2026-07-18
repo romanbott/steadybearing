@@ -312,32 +312,23 @@ impl TuiApp {
             format!("{} RPM ({}%)", r.rpm_mean as u16, pwm_pct)
         });
 
+        let grid_secs = match self.timeframe {
+            TimeFrame::Live => None,
+            TimeFrame::Minute => Some(3600),
+            TimeFrame::Hourly => Some(86400),
+        };
+
         self.render_metric_pane(
-            f,
-            chunks[0],
-            "CPU Usage",
-            latest,
-            hist.as_ref(),
-            sel_usage,
-            MetricKind::Usage,
+            f, chunks[0], "CPU Usage", latest, hist.as_ref(), sel_usage,
+            MetricKind::Usage, grid_secs,
         );
         self.render_metric_pane(
-            f,
-            chunks[1],
-            "CPU Temp",
-            latest,
-            hist.as_ref(),
-            sel_temp,
-            MetricKind::Temp,
+            f, chunks[1], "CPU Temp", latest, hist.as_ref(), sel_temp,
+            MetricKind::Temp, grid_secs,
         );
         self.render_metric_pane(
-            f,
-            chunks[2],
-            "Fan",
-            latest,
-            hist.as_ref(),
-            sel_fan,
-            MetricKind::Fan,
+            f, chunks[2], "Fan", latest, hist.as_ref(), sel_fan,
+            MetricKind::Fan, grid_secs,
         );
 
         let scroll_status = time_str.unwrap_or_default();
@@ -364,6 +355,7 @@ impl TuiApp {
         hs: Option<&HistState>,
         sel_value: Option<String>,
         kind: MetricKind,
+        grid_secs: Option<u32>,
     ) {
         if let Some(h) = hs {
             historical::render_pane(
@@ -376,6 +368,7 @@ impl TuiApp {
                 kind,
                 self.mode,
                 &self.historical_data,
+                grid_secs,
             );
             return;
         }

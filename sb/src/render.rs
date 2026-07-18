@@ -41,7 +41,7 @@ pub fn fan_color(rpm: u16) -> Color {
     )
 }
 
-/// Shared bar-chart painter used by both live and historical panes.
+/// Shared bar-chart painter for live mode (no grid).
 pub fn paint_bars(
     buckets:   &[f32],
     range_min: f32,
