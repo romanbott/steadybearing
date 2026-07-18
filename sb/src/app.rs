@@ -66,7 +66,7 @@ impl TuiApp {
             mode: DisplayMode::Raw,
             timeframe: TimeFrame::Live,
             selection:       0,
-            chart_w:         80,
+            chart_w:         0,
             caret_col:       0,
             key_repeat: None,
             last_key_time: Instant::now(),
@@ -252,6 +252,11 @@ impl TuiApp {
             ])
             .split(f.area());
 
+        let chart_w = chunks[0].width.saturating_sub(2) as usize;
+        if chart_w != self.chart_w {
+            self.chart_w = chart_w;
+        }
+
         let latest = if self.timeframe == TimeFrame::Live {
             self.live_ticks.back().copied()
         } else {
@@ -267,9 +272,6 @@ impl TuiApp {
         // ── historical ────────────────────────────────────────────────
         let (time_str, hist) = if self.timeframe != TimeFrame::Live {
             let chart_w = chunks[0].width.saturating_sub(2) as usize;
-            if chart_w != self.chart_w {
-                self.chart_w = chart_w;
-            }
             let data_len = self.historical_data.len();
 
             let hs = HistState::new(data_len, self.selection, self.caret_col, chart_w);
