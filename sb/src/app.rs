@@ -49,8 +49,9 @@ pub struct TuiApp {
     snapshot: Option<Snapshot>,
     mode: DisplayMode,
     timeframe: TimeFrame,
-    selection: usize,
-    caret_col: usize,
+    selection:       usize,
+    chart_w:         usize,
+    caret_col:       usize,
     key_repeat: Option<(KeyCode, u32)>,
     last_key_time: Instant,
 }
@@ -64,8 +65,9 @@ impl TuiApp {
             snapshot: None,
             mode: DisplayMode::Raw,
             timeframe: TimeFrame::Live,
-            selection: 0,
-            caret_col: 0,
+            selection:       0,
+            chart_w:         80,
+            caret_col:       0,
             key_repeat: None,
             last_key_time: Instant::now(),
         }
@@ -130,13 +132,17 @@ impl TuiApp {
                                     return Ok(());
                                 }
                                 self.selection = self.historical_data.len().saturating_sub(1);
-                                self.caret_col = usize::MAX;
+                                let margin = (self.chart_w / 10).max(1);
+                                self.caret_col = self.chart_w.saturating_sub(margin + 1);
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
                                     let step = self.advance_repeat(KeyCode::Left);
                                     self.selection = self.selection.saturating_sub(step);
-                                    self.caret_col = self.caret_col.saturating_sub(step);
+                                    let margin = (self.chart_w / 10).max(1);
+                                    self.caret_col = self.caret_col
+                                        .saturating_sub(step)
+                                        .clamp(margin, self.chart_w.saturating_sub(margin + 1));
                                 }
                             }
                             KeyCode::Right => {
@@ -145,7 +151,9 @@ impl TuiApp {
                                     let data_len = self.historical_data.len();
                                     self.selection =
                                         (self.selection + step).min(data_len.saturating_sub(1));
-                                    self.caret_col = self.caret_col.saturating_add(step);
+                                    let margin = (self.chart_w / 10).max(1);
+                                    self.caret_col = (self.caret_col + step)
+                                        .clamp(margin, self.chart_w.saturating_sub(margin + 1));
                                 }
                             }
                             _ => {
@@ -259,16 +267,10 @@ impl TuiApp {
         // ── historical ────────────────────────────────────────────────
         let (time_str, hist) = if self.timeframe != TimeFrame::Live {
             let chart_w = chunks[0].width.saturating_sub(2) as usize;
+            if chart_w != self.chart_w {
+                self.chart_w = chart_w;
+            }
             let data_len = self.historical_data.len();
-            let margin = (chart_w / 10).max(1);
-            let old_caret = self.caret_col;
-            self.caret_col = self
-                .caret_col
-                .clamp(margin, chart_w.saturating_sub(margin + 1));
-            // eprintln!(
-            //     "render: chart_w={chart_w} margin={margin} caret_col {old_caret}→{} select={}",
-            //     self.caret_col, self.selection
-            // );
 
             let hs = HistState::new(data_len, self.selection, self.caret_col, chart_w);
 
