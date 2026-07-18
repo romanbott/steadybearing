@@ -61,6 +61,7 @@ pub struct TuiApp {
     caret_col:       usize,
     key_repeat: Option<(KeyCode, u32)>,
     last_key_time: Instant,
+    show_grid: bool,
 }
 
 impl TuiApp {
@@ -76,6 +77,7 @@ impl TuiApp {
             caret_col:       0,
             key_repeat: None,
             last_key_time: Instant::now(),
+            show_grid: true,
         }
     }
 
@@ -128,6 +130,10 @@ impl TuiApp {
                                 } else {
                                     self.mode = self.mode.next_historical();
                                 }
+                            }
+                            KeyCode::Char('g') => {
+                                self.key_repeat = None;
+                                self.show_grid = !self.show_grid;
                             }
                             KeyCode::Char('t') => {
                                 self.key_repeat = None;
@@ -312,10 +318,14 @@ impl TuiApp {
             format!("{} RPM ({}%)", r.rpm_mean as u16, pwm_pct)
         });
 
-        let grid_secs = match self.timeframe {
-            TimeFrame::Live => None,
-            TimeFrame::Minute => Some(3600),
-            TimeFrame::Hourly => Some(86400),
+        let grid_secs = if self.show_grid {
+            match self.timeframe {
+                TimeFrame::Live => None,
+                TimeFrame::Minute => Some(3600),
+                TimeFrame::Hourly => Some(86400),
+            }
+        } else {
+            None
         };
 
         self.render_metric_pane(

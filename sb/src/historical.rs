@@ -1,3 +1,4 @@
+use chrono::{Local, TimeZone};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -176,32 +177,91 @@ pub fn render_pane(
     let mut buf: Vec<Vec<(char, Style)>> = vec![vec![(' ', Style::default()); chart_w]; buf_h];
 
     // ── layer 1: grid ───────────────────────────────────────────────
+    let mut major_vlines: Vec<(usize, i64)> = Vec::new();
+    let mut minor_vlines: Vec<usize> = Vec::new();
     if let Some(interval) = grid_secs {
         let interval = interval as i64;
+        let sub = if interval < 86400 { interval / 2 } else { interval };
         let n = data_slice.len();
         let bc = hs.bar_count;
-        let mut vlines: Vec<usize> = Vec::new();
         for i in 1..n {
-            if data_slice[i].timestamp / interval != data_slice[i - 1].timestamp / interval {
+            let ts = data_slice[i].timestamp;
+            let prev_ts = data_slice[i - 1].timestamp;
+            let major = ts / interval != prev_ts / interval;
+            let minor = sub != interval && ts / sub != prev_ts / sub;
+            if major || minor {
                 let col = (i * bc) / n;
                 let vis = left_gap + col.min(bc.saturating_sub(1));
                 if vis < chart_w {
-                    vlines.push(vis);
+                    if major {
+                        major_vlines.push((vis, ts));
+                    } else {
+                        minor_vlines.push(vis);
+                    }
                 }
             }
         }
 
         let gs = Style::default().fg(Color::DarkGray);
-        let mid = chart_h / 2 + 1; // offset for caret row
+        let mid = chart_h / 2 + 1;
+        let q3 = chart_h * 3 / 4 + 1;
+        let q1 = chart_h / 4 + 1;
 
         for row in 0..buf_h {
-            let is_mid = row == mid;
+            let is_line = row == mid || (chart_h >= 8 && (row == q1 || row == q3));
             for col in 0..chart_w {
-                let vline = vlines.contains(&col);
-                if is_mid {
+                let vline = major_vlines.iter().any(|(c, _)| *c == col)
+                    || minor_vlines.contains(&col);
+                if is_line {
                     buf[row][col] = (if vline { '┼' } else { '─' }, gs);
                 } else if vline {
                     buf[row][col] = ('│', gs);
+                }
+            }
+        }
+    }
+
+    // ── layer 2: labels ─────────────────────────────────────────────
+    if let Some(interval) = grid_secs {
+        if !bar_vals.is_empty() {
+            let ls = Style::default().fg(Color::White);
+            let mid = chart_h / 2 + 1;
+            let q3 = chart_h * 3 / 4 + 1;
+            let q1 = chart_h / 4 + 1;
+
+            // horizontal labels: mid, q1, q3
+            let mid_val = (range_min + range_max) / 2.0;
+            let q1_val = range_min + (range_max - range_min) * 0.25;
+            let q3_val = range_min + (range_max - range_min) * 0.75;
+            for (row, val) in [(mid, mid_val), (q1, q1_val), (q3, q3_val)] {
+                let text = match kind {
+                    MetricKind::Usage => format!("{:.0}%", val),
+                    MetricKind::Temp  => format!("{:.0}°C", val),
+                    MetricKind::Fan   => format!("{}RPM", val as u16),
+                };
+                let lx = left_gap.saturating_sub(text.len());
+                for (i, ch) in text.chars().enumerate() {
+                    let x = lx + i;
+                    if x < chart_w { buf[row][x] = (ch, ls); }
+                }
+            }
+
+            // vertical labels: major vlines only
+            for &(vis, ts) in &major_vlines {
+                let v_label = Local.timestamp_opt(ts, 0)
+                    .single()
+                    .map(|d| {
+                        if interval >= 86400 {
+                            d.format("%d %b").to_string().to_uppercase()
+                        } else {
+                            d.format("%H:%M").to_string()
+                        }
+                    })
+                    .unwrap_or_default();
+                let sx = vis.saturating_sub(v_label.len() / 2);
+                for (i, ch) in v_label.chars().enumerate() {
+                    let x = sx + i;
+                    if x < chart_w { buf[0][x] = (ch, ls); }
                 }
             }
         }
@@ -211,7 +271,7 @@ pub fn render_pane(
     let range = (range_max - range_min).max(1.0);
     for visual_row in 0..chart_h {
         // let y = visual_row + 1; // caret at row 0
-        let y = (chart_h - visual_row); // 0→chart_h, chart_h-1→1
+        let y = chart_h - visual_row;
         for (x, &val) in buckets.iter().enumerate() {
             let norm = ((val - range_min) / range).clamp(0.0, 1.0);
             let bar_top = norm * chart_h as f32;
