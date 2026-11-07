@@ -18,6 +18,17 @@ struct RollupRow {
     pwm_mean: f32,
 }
 
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Open a database connection configured for concurrent readers and writers.
+pub(crate) fn open(path: &str) -> anyhow::Result<rusqlite::Connection> {
+    let conn = rusqlite::Connection::open(path)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    Ok(conn)
+}
+
 const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS rollups (
     bucket_ts     INTEGER NOT NULL PRIMARY KEY,
     temp_min      REAL NOT NULL,
@@ -63,7 +74,7 @@ pub fn spawn(
             let retention_cutoff = now - (config.db_retention_days as u64 * 86400);
 
             tokio::task::spawn_blocking(move || {
-                let conn = rusqlite::Connection::open(&telemetry_path)?;
+                let conn = open(&telemetry_path)?;
                 for row in &minute_rows {
                     insert_row(&conn, row)?;
                 }
@@ -82,7 +93,7 @@ pub fn spawn(
             tokio::task::spawn_blocking(move || {
                 let hour_rows =
                     build_hourly_from_minute_db(&telemetry_path, retention_days);
-                let conn = rusqlite::Connection::open(&archive_path)?;
+                let conn = open(&archive_path)?;
                 for row in &hour_rows {
                     insert_row(&conn, row)?;
                 }
@@ -103,7 +114,7 @@ fn build_hourly_from_minute_db(
         .as_secs();
     let cutoff = now.saturating_sub(retention_days as u64 * 86400);
 
-    let conn = match rusqlite::Connection::open(telemetry_path) {
+    let conn = match open(telemetry_path) {
         Ok(c) => c,
         Err(_) => return vec![],
     };
@@ -190,7 +201,7 @@ fn create_dir_if_needed(path: &str) -> anyhow::Result<()> {
 }
 
 fn init_db(path: &str) -> anyhow::Result<()> {
-    let conn = rusqlite::Connection::open(path)?;
+    let conn = open(path)?;
     conn.execute_batch(SCHEMA)?;
     Ok(())
 }
@@ -241,4 +252,33 @@ fn insert_row(conn: &rusqlite::Connection, row: &RollupRow) -> anyhow::Result<()
         ],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::open;
+
+    #[test]
+    fn open_enables_wal_and_busy_timeout() {
+        let path = std::env::temp_dir().join(format!("sb-db-test-{}.db", std::process::id()));
+        let path_str = path.to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let conn = open(&path_str).expect("open temp db");
+            let mode: String = conn
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .expect("read journal_mode");
+            assert_eq!(mode.to_lowercase(), "wal");
+
+            let timeout: i64 = conn
+                .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+                .expect("read busy_timeout");
+            assert_eq!(timeout, 5000);
+        }
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path_str}-wal"));
+        let _ = std::fs::remove_file(format!("{path_str}-shm"));
+    }
 }

@@ -126,7 +126,7 @@ pub fn spawn(
 }
 
 fn query_historical(path: &str, count: usize) -> anyhow::Result<Vec<HistoricalRow>> {
-    let conn = rusqlite::Connection::open(path)?;
+    let conn = crate::db::open(path)?;
     let mut stmt = conn.prepare(
         "SELECT bucket_ts, temp_min, temp_max, temp_mean,
                 usage_min, usage_max, usage_mean, rpm_mean, pwm_mean
