@@ -1,16 +1,17 @@
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use sb_protocol::types::{MetricSample, TIER1_CAPACITY, TIER2_CAPACITY, TIER3_CAPACITY, TIER4_CAPACITY};
 
 pub struct RingBufferTier {
-    buffer: Mutex<Vec<MetricSample>>,
+    buffer: Mutex<VecDeque<MetricSample>>,
     capacity: usize,
 }
 
 impl RingBufferTier {
     pub fn new(capacity: usize) -> Self {
         RingBufferTier {
-            buffer: Mutex::new(Vec::with_capacity(capacity)),
+            buffer: Mutex::new(VecDeque::with_capacity(capacity)),
             capacity,
         }
     }
@@ -18,14 +19,14 @@ impl RingBufferTier {
     pub fn push(&self, sample: MetricSample) {
         let mut buf = self.buffer.lock().unwrap();
         if buf.len() >= self.capacity {
-            buf.remove(0);
+            buf.pop_front();
         }
-        buf.push(sample);
+        buf.push_back(sample);
     }
 
     pub fn snapshot(&self) -> Vec<MetricSample> {
         let buf = self.buffer.lock().unwrap();
-        buf.clone()
+        buf.iter().copied().collect()
     }
 
     pub fn len(&self) -> usize {
@@ -63,5 +64,62 @@ impl TelemetryStore {
             tier3: Arc::new(RingBufferTier::new(TIER3_CAPACITY)),
             tier4: Arc::new(RingBufferTier::new(TIER4_CAPACITY)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RingBufferTier;
+    use sb_protocol::types::MetricSample;
+
+    fn sample(timestamp: i64) -> MetricSample {
+        MetricSample {
+            timestamp,
+            cpu_temp: 50.0,
+            cpu_usage: 10.0,
+            fan_rpm: 2000,
+            pwm_value: 128,
+        }
+    }
+
+    #[test]
+    fn full_buffer_drops_the_oldest_sample() {
+        let tier = RingBufferTier::new(3);
+        for ts in 0..5 {
+            tier.push(sample(ts));
+        }
+
+        let timestamps: Vec<i64> = tier
+            .snapshot()
+            .iter()
+            .map(|sample| sample.timestamp)
+            .collect();
+        assert_eq!(timestamps, vec![2, 3, 4]);
+        assert_eq!(tier.len(), 3);
+    }
+
+    #[test]
+    fn drain_oldest_returns_samples_in_order() {
+        let tier = RingBufferTier::new(5);
+        for ts in 0..5 {
+            tier.push(sample(ts));
+        }
+
+        let drained: Vec<i64> = tier
+            .drain_oldest(2)
+            .iter()
+            .map(|sample| sample.timestamp)
+            .collect();
+        assert_eq!(drained, vec![0, 1]);
+        assert_eq!(tier.len(), 3);
+    }
+
+    #[test]
+    fn drain_oldest_is_bounded_by_the_buffer_length() {
+        let tier = RingBufferTier::new(5);
+        tier.push(sample(0));
+
+        assert_eq!(tier.drain_oldest(10).len(), 1);
+        assert!(!tier.is_full());
     }
 }
