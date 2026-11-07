@@ -38,7 +38,11 @@ cleanup() {
         kill -TERM "$daemon_pid" 2>/dev/null || true
     fi
     wait 2>/dev/null || true
-    rm -rf "$work"
+    if [[ "${SB_KEEP:-0}" == "1" ]]; then
+        echo "kept harness state in $work"
+    else
+        rm -rf "$work"
+    fi
 }
 trap cleanup EXIT INT TERM
 

@@ -36,6 +36,21 @@ proc_stat
 The plant reads `pwm2` and writes a new `temp1_input` every second, so the
 fan controller has feedback. It also advances the `/proc/stat` counters.
 
+History goes to a single `history.db` with four tiers:
+
+| Table | Resolution | Retention |
+|---|---|---|
+| `rollups_10s` | 10 s | `retention.ten_second_days` (default 1 day) |
+| `rollups_1m` | 1 m | `retention.minute_days` (default 7 days) |
+| `rollups_10m` | 10 m | forever |
+| `rollups_1h` | 1 h | forever |
+
+`SB_KEEP=1 ./dev/harness.sh` leaves the scratch directory (including
+`history.db`) in place after exit so you can inspect the tiers. The 10 s tier
+fills within seconds and the 1 m tier once a minute boundary has passed;
+10 m and 1 h need real elapsed time, so those are better covered by the unit
+tests.
+
 ## Docker
 
 ```sh
