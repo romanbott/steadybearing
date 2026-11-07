@@ -109,14 +109,13 @@ pub fn paint_bars_grid(
         }
     }
 
-    // vertical grid lines + labels at minute marks
+    // vertical grid lines at minute marks
     let n = timestamps.len();
-    let ls = Style::default().fg(Color::White);
+    let mut vertical_labels: Vec<(usize, i64)> = Vec::new();
     for i in 1..n {
         if timestamps[i] / 60 != timestamps[i - 1] / 60 {
             let col = (i * chart_w) / n;
             if col >= chart_w { continue; }
-            // vertical line
             for row in 0..buf_h {
                 if row == mid || row == q1 || row == q3 {
                     buf[row][col] = ('┼', gs);
@@ -124,33 +123,7 @@ pub fn paint_bars_grid(
                     buf[row][col] = ('│', gs);
                 }
             }
-            // label
-            let label = Local.timestamp_opt(timestamps[i], 0)
-                .single()
-                .map(|d| d.format("%H:%M").to_string())
-                .unwrap_or_default();
-            let sx = col.saturating_sub(label.len() / 2);
-            for (j, ch) in label.chars().enumerate() {
-                let x = sx + j;
-                if x < chart_w { buf[0][x] = (ch, ls); }
-            }
-        }
-    }
-
-    // horizontal labels
-    let mid_val = (range_min + range_max) / 2.0;
-    let q1_val = range_min + (range_max - range_min) * 0.25;
-    let q3_val = range_min + (range_max - range_min) * 0.75;
-    for (row, val) in [(mid, mid_val), (q1, q3_val), (q3, q1_val)] {
-        let text = match kind {
-            MetricKind::Usage => format!("{:.0}%", val),
-            MetricKind::Temp  => format!("{:.0}°C", val),
-            MetricKind::Fan   => format!("{}RPM", val as u16),
-        };
-        let lx = 0;
-        for (i, ch) in text.chars().enumerate() {
-            let x = lx + i;
-            if x < chart_w { buf[row][x] = (ch, ls); }
+            vertical_labels.push((col, timestamps[i]));
         }
     }
 
@@ -171,6 +144,36 @@ pub fn paint_bars_grid(
                 };
                 buf[y][x] = (ch, Style::default().fg(color));
             }
+        }
+    }
+
+    // ── labels (drawn last so bars cannot hide them) ─────────
+    let ls = Style::default().fg(Color::White);
+    for (col, ts) in vertical_labels {
+        let label = Local.timestamp_opt(ts, 0)
+            .single()
+            .map(|d| d.format("%H:%M").to_string())
+            .unwrap_or_default();
+        let sx = col.saturating_sub(label.len() / 2);
+        for (j, ch) in label.chars().enumerate() {
+            let x = sx + j;
+            if x < chart_w { buf[0][x] = (ch, ls); }
+        }
+    }
+
+    let mid_val = (range_min + range_max) / 2.0;
+    let q1_val = range_min + (range_max - range_min) * 0.25;
+    let q3_val = range_min + (range_max - range_min) * 0.75;
+    for (row, val) in [(mid, mid_val), (q1, q3_val), (q3, q1_val)] {
+        let text = match kind {
+            MetricKind::Usage => format!("{:.0}%", val),
+            MetricKind::Temp  => format!("{:.0}°C", val),
+            MetricKind::Fan   => format!("{}RPM", val as u16),
+        };
+        let lx = 0;
+        for (i, ch) in text.chars().enumerate() {
+            let x = lx + i;
+            if x < chart_w { buf[row][x] = (ch, ls); }
         }
     }
 
