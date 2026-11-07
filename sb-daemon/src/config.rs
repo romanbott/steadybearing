@@ -7,10 +7,10 @@ pub struct Args {
     #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_SOCKET_PATH))]
     pub socket_path: String,
 
-    #[arg(long, default_value = "/var/log/sb/telemetry.db")]
+    #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_DB_PATH))]
     pub db_path: String,
 
-    #[arg(long, default_value = "/var/log/sb/archive.db")]
+    #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_DB_ARCHIVE_PATH))]
     pub db_archive_path: String,
 
     #[arg(long)]
@@ -73,15 +73,15 @@ fn default_socket_path() -> String {
 }
 
 fn default_db_path() -> String {
-    "/var/log/sb/telemetry.db".into()
+    sb_protocol::types::DEFAULT_DB_PATH.into()
 }
 
 fn default_db_archive_path() -> String {
-    "/var/log/sb/archive.db".into()
+    sb_protocol::types::DEFAULT_DB_ARCHIVE_PATH.into()
 }
 
 fn default_pwm_baseline() -> u8 {
-    110
+    sb_protocol::types::PWM_BASELINE
 }
 
 fn default_fan_soft_min() -> f32 {
