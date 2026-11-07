@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result};
@@ -7,14 +8,22 @@ use crate::hwmon::HwmonLocator;
 
 pub struct Sampler {
     hwmon: HwmonLocator,
+    proc_stat_path: PathBuf,
     prev_idle: AtomicU64,
     prev_total: AtomicU64,
 }
 
 impl Sampler {
     pub fn new(hwmon: HwmonLocator) -> Self {
+        Self::with_proc_path(hwmon, proc_stat_path())
+    }
+
+    /// Construct a sampler that reads CPU counters from an explicit path.
+    /// Used by tests and by the `test-hwmon` harness build.
+    pub(crate) fn with_proc_path(hwmon: HwmonLocator, proc_stat_path: PathBuf) -> Self {
         Sampler {
             hwmon,
+            proc_stat_path,
             prev_idle: AtomicU64::new(0),
             prev_total: AtomicU64::new(0),
         }
@@ -41,8 +50,8 @@ impl Sampler {
     }
 
     fn read_cpu_usage(&self) -> Result<f32> {
-        let stat = std::fs::read_to_string("/proc/stat")
-            .with_context(|| "reading /proc/stat")?;
+        let stat = std::fs::read_to_string(&self.proc_stat_path)
+            .with_context(|| format!("reading {}", self.proc_stat_path.display()))?;
         let cpu_line = stat.lines().find(|l| l.starts_with("cpu ")).unwrap_or("");
         let fields: Vec<u64> = cpu_line
             .split_whitespace()
@@ -115,6 +124,16 @@ fn cpu_usage_percent(prev_idle: u64, prev_total: u64, idle: u64, total: u64) -> 
     let busy_delta = total_delta.saturating_sub(idle_delta);
 
     100.0 * busy_delta as f32 / total_delta as f32
+}
+
+/// `/proc/stat` path used by the real sampler. The environment override only
+/// exists in builds with the `test-hwmon` feature.
+fn proc_stat_path() -> PathBuf {
+    #[cfg(feature = "test-hwmon")]
+    if let Some(path) = std::env::var_os("SB_PROC_STAT") {
+        return PathBuf::from(path);
+    }
+    PathBuf::from("/proc/stat")
 }
 
 #[cfg(test)]

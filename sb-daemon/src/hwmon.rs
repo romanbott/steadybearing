@@ -11,7 +11,7 @@ pub struct HwmonLocator {
 
 impl HwmonLocator {
     pub fn discover() -> Result<Self> {
-        Self::discover_in(Path::new("/sys/class/hwmon"))
+        Self::discover_in(&hwmon_root())
     }
 
     fn discover_in(base: &Path) -> Result<Self> {
@@ -88,6 +88,16 @@ impl HwmonLocator {
                 .context("fan1_input / fan2_input hwmon not found")?,
         })
     }
+}
+
+/// Root used by the real discovery. The environment override only exists in
+/// builds with the `test-hwmon` feature (used by the fake-sysfs harness).
+fn hwmon_root() -> PathBuf {
+    #[cfg(feature = "test-hwmon")]
+    if let Some(root) = std::env::var_os("SB_HWMON_ROOT") {
+        return PathBuf::from(root);
+    }
+    PathBuf::from("/sys/class/hwmon")
 }
 
 #[cfg(test)]

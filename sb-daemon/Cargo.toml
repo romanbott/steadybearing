@@ -7,6 +7,11 @@ edition.workspace = true
 name = "sb-daemon"
 path = "src/main.rs"
 
+[features]
+# Compiles in test-only overrides for the hwmon and /proc/stat paths,
+# used by the fake-sysfs harness. Not enabled for release builds.
+test-hwmon = []
+
 [dependencies]
 sb-protocol = { path = "../sb-protocol" }
 tokio = { version = "1", features = ["full"] }
