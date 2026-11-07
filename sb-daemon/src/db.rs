@@ -369,7 +369,9 @@ pub(crate) fn query_historical(
     count: usize,
 ) -> anyhow::Result<Vec<HistoricalRow>> {
     let table = match resolution {
+        HistoricalResolution::TenSecond => TIER_10S,
         HistoricalResolution::Minute => TIER_1M,
+        HistoricalResolution::TenMinute => TIER_10M,
         HistoricalResolution::Hourly => TIER_1H,
     };
 
@@ -681,6 +683,8 @@ mod tests {
         let conn = open(&path_str).unwrap();
         insert_row(&conn, TIER_1M, &row(60, 5000, 60)).unwrap();
         insert_row(&conn, TIER_1M, &row(120, 6000, 60)).unwrap();
+        insert_row(&conn, TIER_10S, &row(10, 4100, 10)).unwrap();
+        insert_row(&conn, TIER_10M, &row(600, 5100, 600)).unwrap();
         drop(conn);
 
         let rows = query_historical(&path_str, HistoricalResolution::Minute, 10).unwrap();
@@ -689,6 +693,14 @@ mod tests {
         assert_eq!(rows[0].temp_mean, 50.0);
         assert_eq!(rows[0].rpm_mean, 2000.0);
         assert_eq!(rows[1].timestamp, 120);
+
+        let rows = query_historical(&path_str, HistoricalResolution::TenSecond, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].temp_mean, 41.0);
+
+        let rows = query_historical(&path_str, HistoricalResolution::TenMinute, 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].temp_mean, 51.0);
 
         cleanup(&path_str);
     }

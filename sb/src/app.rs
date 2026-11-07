@@ -63,15 +63,19 @@ impl Drop for TerminalRestore {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TimeFrame {
     Live,
+    TenSecond,
     Minute,
+    TenMinute,
     Hourly,
 }
 
 impl TimeFrame {
     fn next(self) -> Self {
         match self {
-            TimeFrame::Live => TimeFrame::Minute,
-            TimeFrame::Minute => TimeFrame::Hourly,
+            TimeFrame::Live => TimeFrame::TenSecond,
+            TimeFrame::TenSecond => TimeFrame::Minute,
+            TimeFrame::Minute => TimeFrame::TenMinute,
+            TimeFrame::TenMinute => TimeFrame::Hourly,
             TimeFrame::Hourly => TimeFrame::Live,
         }
     }
@@ -79,9 +83,33 @@ impl TimeFrame {
     fn label(self) -> &'static str {
         match self {
             TimeFrame::Live => "live",
+            TimeFrame::TenSecond => "10s buckets",
             TimeFrame::Minute => "1m buckets",
+            TimeFrame::TenMinute => "10m buckets",
             TimeFrame::Hourly => "1h buckets",
         }
+    }
+}
+
+fn historical_resolution(timeframe: TimeFrame) -> HistoricalResolution {
+    match timeframe {
+        TimeFrame::TenSecond => HistoricalResolution::TenSecond,
+        TimeFrame::Minute => HistoricalResolution::Minute,
+        TimeFrame::TenMinute => HistoricalResolution::TenMinute,
+        TimeFrame::Hourly => HistoricalResolution::Hourly,
+        TimeFrame::Live => unreachable!(),
+    }
+}
+
+/// How many rows to request for each view. Coarser tiers cover years while
+/// staying well below the daemon's row clamp.
+fn historical_count(timeframe: TimeFrame) -> usize {
+    match timeframe {
+        TimeFrame::TenSecond => 8_640,   // one day
+        TimeFrame::Minute => 10_080,     // seven days
+        TimeFrame::TenMinute => 10_000,  // about 69 days
+        TimeFrame::Hourly => 50_000,     // about 5.7 years
+        TimeFrame::Live => 2_000,
     }
 }
 
@@ -276,17 +304,14 @@ impl TuiApp {
             return Ok(());
         }
 
-        let resolution = match new {
-            TimeFrame::Minute => HistoricalResolution::Minute,
-            TimeFrame::Hourly => HistoricalResolution::Hourly,
-            TimeFrame::Live => unreachable!(),
-        };
+        let resolution = historical_resolution(new);
+        let count = historical_count(new);
 
         if hist_framed.is_none() {
             *hist_framed = Some(crate::client::connect(&self.socket_path).await?);
         }
         let conn = hist_framed.as_mut().expect("historical connection");
-        match crate::client::request_historical(conn, resolution, 2000).await {
+        match crate::client::request_historical(conn, resolution, count).await {
             Ok(rows) => {
                 self.historical_data = rows;
             }
@@ -309,17 +334,17 @@ impl TuiApp {
         &mut self,
         hist_framed: &mut Option<crate::client::IpcFramed>,
     ) -> anyhow::Result<()> {
-        let resolution = match self.timeframe {
-            TimeFrame::Minute => HistoricalResolution::Minute,
-            TimeFrame::Hourly => HistoricalResolution::Hourly,
-            TimeFrame::Live => return Ok(()),
-        };
+        if self.timeframe == TimeFrame::Live {
+            return Ok(());
+        }
+        let resolution = historical_resolution(self.timeframe);
+        let count = historical_count(self.timeframe);
 
         if hist_framed.is_none() {
             *hist_framed = Some(crate::client::connect(&self.socket_path).await?);
         }
         let conn = hist_framed.as_mut().expect("historical connection");
-        let rows = match crate::client::request_historical(conn, resolution, 2000).await {
+        let rows = match crate::client::request_historical(conn, resolution, count).await {
             Ok(rows) => rows,
             Err(err) => {
                 *hist_framed = None;
@@ -432,8 +457,8 @@ impl TuiApp {
 
         let grid_secs = if self.show_grid {
             match self.timeframe {
-                TimeFrame::Live => Some(60),
-                TimeFrame::Minute => Some(3600),
+                TimeFrame::Live | TimeFrame::TenSecond => Some(60),
+                TimeFrame::Minute | TimeFrame::TenMinute => Some(3600),
                 TimeFrame::Hourly => Some(86400),
             }
         } else {
@@ -746,12 +771,21 @@ mod tests {
                     app.timeframe = TimeFrame::Live;
                     terminal.draw(|frame| app.render(frame)).unwrap();
 
-                    app.timeframe = TimeFrame::Minute;
-                    for selection in [0, app.historical_data.len() / 2, app.historical_data.len() - 1] {
-                        app.selection = selection;
-                        for caret in [0, 10, app.chart_w.max(1), width as usize + 10] {
-                            app.caret_col = caret;
-                            terminal.draw(|frame| app.render(frame)).unwrap();
+                    for timeframe in [
+                        TimeFrame::TenSecond,
+                        TimeFrame::Minute,
+                        TimeFrame::TenMinute,
+                        TimeFrame::Hourly,
+                    ] {
+                        app.timeframe = timeframe;
+                        for selection in
+                            [0, app.historical_data.len() / 2, app.historical_data.len() - 1]
+                        {
+                            app.selection = selection;
+                            for caret in [0, 10, app.chart_w.max(1), width as usize + 10] {
+                                app.caret_col = caret;
+                                terminal.draw(|frame| app.render(frame)).unwrap();
+                            }
                         }
                     }
 

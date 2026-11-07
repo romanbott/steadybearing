@@ -33,7 +33,9 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HistoricalResolution {
+    TenSecond,
     Minute,
+    TenMinute,
     Hourly,
 }
 
