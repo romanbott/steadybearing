@@ -151,8 +151,20 @@ pub fn render_pane(
         (mn, if mx > mn { mx } else { mn + 1.0 })
     };
 
+    // Pool with the reducer that matches the displayed statistic. The fan
+    // view only has a mean (there is no per-bucket rpm min/max), so it always
+    // averages even when min/max mode is selected.
+    let reducer = if matches!(kind, MetricKind::Fan) {
+        chart::Reducer::Mean
+    } else {
+        match mode {
+            DisplayMode::Max => chart::Reducer::Max,
+            DisplayMode::Min => chart::Reducer::Min,
+            DisplayMode::Raw | DisplayMode::MA => chart::Reducer::Mean,
+        }
+    };
     let decimated = if hs.bar_count > 0 && !bar_vals.is_empty() {
-        chart::decimate(&bar_vals, hs.bar_count)
+        chart::decimate_with(&bar_vals, hs.bar_count, reducer)
     } else {
         vec![]
     };
