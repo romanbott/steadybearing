@@ -20,6 +20,6 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
-ctrlc = "3"
+ctrlc = { version = "3", features = ["termination"] }
 futures = "0.3"
 bytes = "1"

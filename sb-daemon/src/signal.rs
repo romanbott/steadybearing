@@ -36,7 +36,7 @@ impl Drop for SignalGuard {
     }
 }
 
-fn restore_auto(path: &std::path::Path) -> anyhow::Result<()> {
+pub(crate) fn restore_auto(path: &std::path::Path) -> anyhow::Result<()> {
     std::fs::write(path, b"2\n")?;
     Ok(())
 }

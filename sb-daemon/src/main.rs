@@ -39,7 +39,15 @@ fn main() -> Result<()> {
     println!("pwm2_enable previous value: {prev_enable}");
     std::fs::write(&hwmon.pwm_enable_path, b"1\n")?;
 
-    let (_guard, shutdown) = signal::SignalGuard::new(hwmon.pwm_enable_path.clone())?;
+    let (_guard, shutdown) = match signal::SignalGuard::new(hwmon.pwm_enable_path.clone()) {
+        Ok(guard) => guard,
+        Err(err) => {
+            // We already put the fan into manual mode; make sure a failed
+            // handler install does not leave it there.
+            let _ = signal::restore_auto(&hwmon.pwm_enable_path);
+            return Err(err);
+        }
+    };
 
     if let Some(parent) = std::path::Path::new(&config.db_path).parent() {
         std::fs::create_dir_all(parent)?;
