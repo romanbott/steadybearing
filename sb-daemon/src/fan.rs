@@ -84,17 +84,11 @@ pub fn spawn(
 }
 
 fn compute_10s_ma(store: &TelemetryStore) -> f32 {
-    let snapshot = store.tier1.snapshot();
-    if snapshot.len() < 10 {
-        return snapshot.iter().map(|s| s.cpu_temp).sum::<f32>() / snapshot.len().max(1) as f32;
+    let recent = store.tier1.last_n(10);
+    if recent.is_empty() {
+        return 0.0;
     }
-    let last_10: Vec<f32> = snapshot
-        .iter()
-        .rev()
-        .take(10)
-        .map(|s| s.cpu_temp)
-        .collect();
-    last_10.iter().sum::<f32>() / 10.0
+    recent.iter().map(|s| s.cpu_temp).sum::<f32>() / recent.len() as f32
 }
 
 fn step_pwm(ma_temp: f32, state: &mut FanState, current_pwm: &mut u8, config: &Config) -> u8 {

@@ -29,6 +29,13 @@ impl RingBufferTier {
         buf.iter().copied().collect()
     }
 
+    /// Copy the most recent `count` samples without cloning the whole buffer.
+    pub fn last_n(&self, count: usize) -> Vec<MetricSample> {
+        let buf = self.buffer.lock().unwrap();
+        let start = buf.len().saturating_sub(count);
+        buf.iter().skip(start).copied().collect()
+    }
+
     pub fn len(&self) -> usize {
         self.buffer.lock().unwrap().len()
     }
@@ -96,6 +103,7 @@ mod tests {
             .collect();
         assert_eq!(timestamps, vec![2, 3, 4]);
         assert_eq!(tier.len(), 3);
+        assert_eq!(tier.capacity(), 3);
     }
 
     #[test]
@@ -112,6 +120,22 @@ mod tests {
             .collect();
         assert_eq!(drained, vec![0, 1]);
         assert_eq!(tier.len(), 3);
+    }
+
+    #[test]
+    fn last_n_returns_only_the_tail() {
+        let tier = RingBufferTier::new(5);
+        for ts in 0..5 {
+            tier.push(sample(ts));
+        }
+
+        let tail: Vec<i64> = tier
+            .last_n(2)
+            .iter()
+            .map(|sample| sample.timestamp)
+            .collect();
+        assert_eq!(tail, vec![3, 4]);
+        assert_eq!(tier.last_n(10).len(), 5);
     }
 
     #[test]
