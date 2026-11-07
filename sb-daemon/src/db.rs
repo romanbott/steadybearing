@@ -57,69 +57,61 @@ pub fn spawn(
 
         loop {
             interval.tick().await;
-
-            let snapshot = store.tier1.snapshot();
-            if snapshot.is_empty() {
-                continue;
-            }
-
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-
-            let minute_rows = complete_buckets(&snapshot, 60);
-
-            let telemetry_path = config.db_path.clone();
-            let retention_cutoff = now.saturating_sub(config.db_retention_days as u64 * 86400);
-
-            let telemetry_result = tokio::task::spawn_blocking(move || {
-                let conn = open(&telemetry_path)?;
-                for row in &minute_rows {
-                    insert_row(&conn, row)?;
-                }
-                conn.execute(
-                    "DELETE FROM rollups WHERE bucket_ts < ?1",
-                    rusqlite::params![retention_cutoff as i64],
-                )?;
-                Ok::<_, anyhow::Error>(())
-            })
-            .await;
-
-            match telemetry_result {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => {
-                    tracing::error!(?err, "telemetry flush failed");
-                    continue;
-                }
-                Err(err) => {
-                    tracing::error!(?err, "telemetry flush task failed");
-                    continue;
-                }
-            }
-
-            let telemetry_path = config.db_path.clone();
-            let archive_path = config.db_archive_path.clone();
-            let retention_days = config.db_retention_days;
-
-            let archive_result = tokio::task::spawn_blocking(move || {
-                let hour_rows =
-                    build_hourly_from_minute_db(&telemetry_path, retention_days);
-                let conn = open(&archive_path)?;
-                for row in &hour_rows {
-                    insert_row(&conn, row)?;
-                }
-                Ok::<_, anyhow::Error>(())
-            })
-            .await;
-
-            match archive_result {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => tracing::error!(?err, "archive rollup failed"),
-                Err(err) => tracing::error!(?err, "archive rollup task failed"),
+            if let Err(err) = flush_once(&store, &config).await {
+                tracing::error!(?err, "telemetry flush failed");
             }
         }
     }))
+}
+
+/// Write the complete minute buckets currently held in `tier1` and refresh
+/// the hourly archive. Called on every flush interval and once at shutdown.
+async fn flush_once(store: &TelemetryStore, config: &Config) -> anyhow::Result<()> {
+    let snapshot = store.tier1.snapshot();
+    if snapshot.is_empty() {
+        return Ok(());
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let minute_rows = complete_buckets(&snapshot, 60);
+
+    let telemetry_path = config.db_path.clone();
+    let retention_cutoff = now.saturating_sub(config.db_retention_days as u64 * 86400);
+
+    tokio::task::spawn_blocking(move || {
+        let conn = open(&telemetry_path)?;
+        for row in &minute_rows {
+            insert_row(&conn, row)?;
+        }
+        conn.execute(
+            "DELETE FROM rollups WHERE bucket_ts < ?1",
+            rusqlite::params![retention_cutoff as i64],
+        )?;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .map_err(|err| anyhow::anyhow!("telemetry flush task failed: {err}"))??;
+
+    let telemetry_path = config.db_path.clone();
+    let archive_path = config.db_archive_path.clone();
+    let retention_days = config.db_retention_days;
+
+    tokio::task::spawn_blocking(move || {
+        let hour_rows = build_hourly_from_minute_db(&telemetry_path, retention_days);
+        let conn = open(&archive_path)?;
+        for row in &hour_rows {
+            insert_row(&conn, row)?;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .map_err(|err| anyhow::anyhow!("archive rollup task failed: {err}"))??;
+
+    Ok(())
 }
 
 fn build_hourly_from_minute_db(
@@ -294,7 +286,9 @@ fn insert_row(conn: &rusqlite::Connection, row: &RollupRow) -> anyhow::Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::{complete_buckets, open};
+    use super::{complete_buckets, flush_once, init_db, open};
+    use crate::config::Config;
+    use crate::store::TelemetryStore;
     use sb_protocol::types::MetricSample;
 
     fn sample(timestamp: i64) -> MetricSample {
@@ -335,6 +329,78 @@ mod tests {
     #[test]
     fn complete_buckets_handles_empty_input() {
         assert!(complete_buckets(&[], 60).is_empty());
+    }
+
+    fn test_config(db_path: String, archive_path: String) -> Config {
+        Config {
+            socket_path: "/tmp/sb-test.sock".into(),
+            db_path,
+            db_archive_path: archive_path,
+            db_flush_secs: 600.0,
+            db_retention_days: 7,
+            pwm_baseline: 110,
+            fan_soft_min: 40.0,
+            fan_soft_max: 60.0,
+            fan_hard_max: 80.0,
+            fan_dwell_secs: 10.0,
+            fan_step: 5,
+            fan_hard_ramp_secs: 10.0,
+            fan_drift_temp: 50.0,
+            fan_drift_secs: 30.0,
+            verbose: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn flush_once_writes_complete_minutes() {
+        let base = std::env::temp_dir();
+        let path = base.join(format!("sb-flush-test-{}.db", std::process::id()));
+        let archive =
+            base.join(format!("sb-flush-archive-test-{}.db", std::process::id()));
+        let path_str = path.to_string_lossy().to_string();
+        let archive_str = archive.to_string_lossy().to_string();
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{path_str}{suffix}"));
+            let _ = std::fs::remove_file(format!("{archive_str}{suffix}"));
+        }
+
+        let config = test_config(path_str.clone(), archive_str.clone());
+        init_db(&config.db_path).unwrap();
+        init_db(&config.db_archive_path).unwrap();
+
+        let store = TelemetryStore::new();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let minute_start = now / 60 * 60;
+        for ts in (minute_start - 180)..minute_start {
+            store.tier1.push(sample(ts));
+        }
+
+        flush_once(&store, &config).await.expect("flush");
+
+        let conn = open(&path_str).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT bucket_ts FROM rollups ORDER BY bucket_ts")
+            .unwrap();
+        let rows: Vec<i64> = stmt
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(
+            rows,
+            vec![minute_start - 180, minute_start - 120, minute_start - 60]
+        );
+        drop(stmt);
+        drop(conn);
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{path_str}{suffix}"));
+            let _ = std::fs::remove_file(format!("{archive_str}{suffix}"));
+        }
     }
 
     #[test]
