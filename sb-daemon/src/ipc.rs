@@ -1,4 +1,6 @@
 use std::os::unix::fs::PermissionsExt;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use futures::{SinkExt, StreamExt};
@@ -11,6 +13,10 @@ use sb_protocol::types::{HistoricalRow, IpcRequest, IpcResponse, MetricSample};
 
 use crate::config::Config;
 use crate::store::TelemetryStore;
+
+const MAX_CONNECTIONS: usize = 64;
+const MAX_HISTORICAL_ROWS: usize = 100_000;
+const FIRST_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Held for the lifetime of the daemon. The OS releases the lock when the
 /// process exits, so the file itself is intentionally left in place.
@@ -27,6 +33,7 @@ impl InstanceLock {
 
         let file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&path)?;
@@ -76,23 +83,54 @@ pub fn spawn(
         }
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o660))?;
 
+        let connections = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
+
         loop {
             let (stream, _addr) = match listener.accept().await {
                 Ok(pair) => pair,
                 Err(err) => {
                     tracing::error!(?err, "ipc accept failed");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                     continue;
                 }
             };
+
+            let permit = match connections.clone().try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    tracing::warn!("ipc connection limit reached");
+                    continue;
+                }
+            };
+
             let store = store.clone();
             let tx = tx.clone();
             let config = config.clone();
 
             tokio::spawn(async move {
+                let _permit = permit;
                 let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
+                let mut first_request = true;
 
-                while let Some(result) = framed.next().await {
+                loop {
+                    let next = if std::mem::take(&mut first_request) {
+                        match tokio::time::timeout(
+                            FIRST_REQUEST_TIMEOUT,
+                            framed.next(),
+                        )
+                        .await
+                        {
+                            Ok(next) => next,
+                            Err(_) => {
+                                tracing::debug!("ipc client timed out before its first request");
+                                return;
+                            }
+                        }
+                    } else {
+                        framed.next().await
+                    };
+
+                    let Some(result) = next else { return };
                     let data = match result {
                         Ok(d) => d,
                         Err(_) => return,
@@ -149,6 +187,7 @@ pub fn spawn(
                             } else {
                                 config.db_path.clone()
                             };
+                            let count = count.min(MAX_HISTORICAL_ROWS);
 
                             let result = tokio::task::spawn_blocking(move || {
                                 query_historical(&db_path, count)
@@ -182,30 +221,6 @@ pub fn spawn(
     }))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::InstanceLock;
-
-    #[test]
-    fn only_one_instance_can_hold_the_lock() {
-        let path = std::env::temp_dir().join(format!(
-            "sb-lock-test-{}.sock",
-            std::process::id()
-        ));
-        let path_str = path.to_string_lossy().to_string();
-        let lock_path = format!("{path_str}.lock");
-        let _ = std::fs::remove_file(&lock_path);
-
-        let first = InstanceLock::acquire(&path_str).expect("first lock");
-        assert!(InstanceLock::acquire(&path_str).is_err());
-
-        drop(first);
-        assert!(InstanceLock::acquire(&path_str).is_ok());
-
-        let _ = std::fs::remove_file(&lock_path);
-    }
-}
-
 fn query_historical(path: &str, count: usize) -> anyhow::Result<Vec<HistoricalRow>> {
     let conn = crate::db::open(path)?;
     let mut stmt = conn.prepare(
@@ -231,4 +246,28 @@ fn query_historical(path: &str, count: usize) -> anyhow::Result<Vec<HistoricalRo
         .collect();
     rows.reverse();
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InstanceLock;
+
+    #[test]
+    fn only_one_instance_can_hold_the_lock() {
+        let path = std::env::temp_dir().join(format!(
+            "sb-lock-test-{}.sock",
+            std::process::id()
+        ));
+        let path_str = path.to_string_lossy().to_string();
+        let lock_path = format!("{path_str}.lock");
+        let _ = std::fs::remove_file(&lock_path);
+
+        let first = InstanceLock::acquire(&path_str).expect("first lock");
+        assert!(InstanceLock::acquire(&path_str).is_err());
+
+        drop(first);
+        assert!(InstanceLock::acquire(&path_str).is_ok());
+
+        let _ = std::fs::remove_file(&lock_path);
+    }
 }
