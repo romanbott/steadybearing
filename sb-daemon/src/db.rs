@@ -349,6 +349,7 @@ mod tests {
     fn test_config(db_path: String, archive_path: String) -> Config {
         Config {
             socket_path: "/tmp/sb-test.sock".into(),
+            socket_gid: None,
             db_path,
             db_archive_path: archive_path,
             db_flush_secs: 600.0,

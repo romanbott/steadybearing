@@ -3,6 +3,10 @@
 
 socket_path = "/run/sb/sb.sock"
 
+# Group ID that owns the socket (mode 0660). When unset the daemon's
+# effective group is used; the systemd unit sets Group=sb.
+# socket_gid = 1000
+
 # --- Database ---
 
 # Minute-resolution telemetry, pruned after retention_days

@@ -25,6 +25,9 @@ pub struct ConfigFile {
     #[serde(default = "default_socket_path")]
     pub socket_path: String,
 
+    #[serde(default)]
+    pub socket_gid: Option<u32>,
+
     #[serde(default = "default_db_path")]
     pub db_path: String,
 
@@ -124,6 +127,7 @@ fn default_db_retention_days() -> u32 {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub socket_path: String,
+    pub socket_gid: Option<u32>,
     pub db_path: String,
     pub db_archive_path: String,
     pub db_flush_secs: f32,
@@ -159,6 +163,7 @@ impl Config {
                 .as_ref()
                 .map(|c| c.socket_path.clone())
                 .unwrap_or(args.socket_path),
+            socket_gid: config_file.as_ref().and_then(|c| c.socket_gid),
             db_path: config_file
                 .as_ref()
                 .map(|c| c.db_path.clone())
@@ -280,6 +285,7 @@ mod tests {
     fn valid_config() -> Config {
         Config {
             socket_path: "/tmp/sb.sock".into(),
+            socket_gid: None,
             db_path: "/tmp/sb.db".into(),
             db_archive_path: "/tmp/sb-archive.db".into(),
             db_flush_secs: 600.0,

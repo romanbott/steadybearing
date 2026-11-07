@@ -1,5 +1,6 @@
 use std::os::unix::fs::PermissionsExt;
 
+use anyhow::Context;
 use futures::{SinkExt, StreamExt};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
@@ -69,7 +70,11 @@ pub fn spawn(
         let _cleanup = SocketCleanup {
             path: socket_path.clone(),
         };
-        std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o666))?;
+        if let Some(gid) = config.socket_gid {
+            std::os::unix::fs::chown(&socket_path, None, Some(gid))
+                .with_context(|| format!("changing socket group to {gid}"))?;
+        }
+        std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o660))?;
 
         loop {
             let (stream, _addr) = match listener.accept().await {
