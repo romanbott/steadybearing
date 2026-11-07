@@ -1,6 +1,8 @@
 [Unit]
 Description=SteadyBearing fan control daemon
-After=multi-user.target
+Documentation=file:/usr/share/doc/sb/README.md
+After=local-fs.target
+ConditionPathIsDirectory=/sys/class/hwmon
 
 [Service]
 Type=simple
@@ -9,9 +11,16 @@ StateDirectory=sb
 StateDirectoryMode=0750
 RuntimeDirectory=sb
 RuntimeDirectoryMode=0750
-ExecStart=/usr/local/bin/sb-daemon -v
-Restart=always
+ExecStart=/usr/bin/sb-daemon -v
+Restart=on-failure
 RestartSec=10
+TimeoutStopSec=20
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX
 StandardOutput=journal
 StandardError=journal
 Environment=RUST_LOG=info
