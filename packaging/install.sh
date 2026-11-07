@@ -11,6 +11,7 @@ set -euo pipefail
 
 PREFIX=/usr/local
 BINDIR=""
+LIBDIR=""
 UNIT_DIR=/etc/systemd/system
 CONFIG_DIR=/etc/sb
 STATE_DIR=/var/lib/sb
@@ -25,6 +26,7 @@ usage: install.sh [options]
 
   --prefix DIR       installation prefix (default /usr/local)
   --bindir DIR       binary directory (default PREFIX/bin)
+  --libdir DIR       helper binary directory (default PREFIX/lib/sb)
   --unit-dir DIR     systemd unit directory (default /etc/systemd/system)
   --config-dir DIR   configuration directory (default /etc/sb)
   --no-start         install but do not start/restart the service
@@ -42,6 +44,10 @@ while [ $# -gt 0 ]; do
             ;;
         --bindir)
             BINDIR=${2:?--bindir needs a value}
+            shift 2
+            ;;
+        --libdir)
+            LIBDIR=${2:?--libdir needs a value}
             shift 2
             ;;
         --unit-dir)
@@ -79,6 +85,9 @@ done
 if [ -z "$BINDIR" ]; then
     BINDIR="$PREFIX/bin"
 fi
+if [ -z "$LIBDIR" ]; then
+    LIBDIR="$PREFIX/lib/sb"
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "run as root, for example: sudo $0 $*" >&2
@@ -96,6 +105,8 @@ if [ "$UNINSTALL" = 1 ]; then
         systemctl disable --now sb-daemon.service >/dev/null 2>&1 || true
     fi
     rm -f "$BINDIR/sb-daemon" "$BINDIR/sb" "$UNIT_DIR/sb-daemon.service"
+    rm -f "$LIBDIR/migrate-history"
+    rmdir "$LIBDIR" 2>/dev/null || true
     rm -f "$SYSUSERS_DIR/sb.conf"
     if [ "$have_systemd" = 1 ]; then
         systemctl daemon-reload >/dev/null 2>&1 || true
@@ -119,6 +130,9 @@ done
 
 install -Dm755 "$src/sb-daemon" "$BINDIR/sb-daemon"
 install -Dm755 "$src/sb" "$BINDIR/sb"
+if [ -e "$src/migrate-history" ]; then
+    install -Dm755 "$src/migrate-history" "$LIBDIR/migrate-history"
+fi
 
 if ! getent group sb >/dev/null 2>&1; then
     groupadd --system sb 2>/dev/null || addgroup --system sb

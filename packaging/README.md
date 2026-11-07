@@ -29,7 +29,9 @@ dist/SHA256SUMS
 ```
 
 Both artifacts contain `sb-daemon`, `sb`, the systemd unit, the default
-`sb.toml`, the sysusers file, and the one-off `migrate-history` helper.
+`sb.toml`, the sysusers file, and the one-off `migrate-history` helper
+(`/usr/lib/sb/migrate-history` in the package, `PREFIX/lib/sb/migrate-history`
+for the tarball).
 
 ## Debian
 
@@ -52,8 +54,8 @@ sudo ./sb-<version>-x86_64-linux/install.sh
 
 The script defaults to `/usr/local`, patches the unit's `ExecStart`, installs
 the config only if it does not exist, creates the `sb` group, and enables the
-service. Useful options: `--prefix`, `--bindir`, `--no-start`, `--uninstall`,
-`--purge`.
+service. Useful options: `--prefix`, `--bindir`, `--libdir`, `--no-start`,
+`--uninstall`, `--purge`.
 
 ## Notes
 

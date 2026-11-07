@@ -69,7 +69,8 @@ If you have data from the older `telemetry.db` / `archive.db` layout, run the
 one-off importer before starting the daemon:
 
 ```sh
-sudo /usr/lib/sb/migrate-history --help
+sudo /usr/lib/sb/migrate-history --help          # package install
+sudo /usr/local/lib/sb/migrate-history --help    # tarball install
 ```
 
 ## Development
