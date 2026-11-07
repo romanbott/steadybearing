@@ -18,6 +18,7 @@ enum FanState {
     Cooling { ticks: u64 },
     Idling { ticks: u64 },
     Drifting { ticks: u64 },
+    Recovering { ticks: u64 },
     HardMax { started_at: tokio::time::Instant, start_pwm: u8 },
 }
 
@@ -106,7 +107,7 @@ fn step_pwm(ma_temp: f32, state: &mut FanState, current_pwm: &mut u8, config: &C
 
     if let FanState::HardMax { started_at, start_pwm } = *state {
         if ma_temp < config.fan_soft_max {
-            *state = FanState::Stable;
+            *state = FanState::Recovering { ticks: 0 };
             return *current_pwm;
         }
 
@@ -115,6 +116,30 @@ fn step_pwm(ma_temp: f32, state: &mut FanState, current_pwm: &mut u8, config: &C
         let t = (elapsed / ramp_secs).min(1.0);
         let target = start_pwm as f32 + (255.0 - start_pwm as f32) * t;
         *current_pwm = target as u8;
+        return *current_pwm;
+    }
+
+    // After a hard-max event, step back down towards the baseline instead of
+    // holding 100% through the soft-max/soft-min dead band.
+    if let FanState::Recovering { ticks } = *state {
+        if ma_temp >= config.fan_soft_max {
+            *state = FanState::Cooling { ticks: 1 };
+            return *current_pwm;
+        }
+
+        let new_ticks = ticks + 1;
+        if new_ticks as f32 >= config.fan_dwell_secs {
+            *current_pwm = (*current_pwm)
+                .saturating_sub(config.fan_step)
+                .max(config.pwm_baseline);
+            if *current_pwm <= config.pwm_baseline {
+                *state = FanState::Stable;
+            } else {
+                *state = FanState::Recovering { ticks: 0 };
+            }
+        } else {
+            *state = FanState::Recovering { ticks: new_ticks };
+        }
         return *current_pwm;
     }
 
@@ -181,4 +206,76 @@ async fn apply_pwm(hwmon: &HwmonLocator, value: u8) -> anyhow::Result<()> {
     let pwm_str = format!("{}\n", value);
     tokio::fs::write(&hwmon.pwm_path, pwm_str.as_bytes()).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{step_pwm, FanState};
+    use crate::config::Config;
+
+    fn config() -> Config {
+        Config {
+            socket_path: "/tmp/sb.sock".into(),
+            socket_gid: None,
+            db_path: "/tmp/sb.db".into(),
+            db_archive_path: "/tmp/sb-archive.db".into(),
+            db_flush_secs: 600.0,
+            db_retention_days: 7,
+            pwm_baseline: 110,
+            fan_soft_min: 40.0,
+            fan_soft_max: 60.0,
+            fan_hard_max: 80.0,
+            fan_dwell_secs: 10.0,
+            fan_step: 5,
+            fan_hard_ramp_secs: 10.0,
+            fan_drift_temp: 50.0,
+            fan_drift_secs: 30.0,
+            verbose: false,
+        }
+    }
+
+    #[test]
+    fn hard_max_exit_enters_recovery() {
+        let config = config();
+        let mut state = FanState::HardMax {
+            started_at: tokio::time::Instant::now(),
+            start_pwm: 110,
+        };
+        let mut pwm = 255;
+
+        let target = step_pwm(55.0, &mut state, &mut pwm, &config);
+
+        assert_eq!(target, 255);
+        assert!(matches!(state, FanState::Recovering { .. }));
+    }
+
+    #[test]
+    fn recovery_steps_down_to_the_baseline() {
+        let config = config();
+        let mut state = FanState::Recovering { ticks: 0 };
+        let mut pwm = 160;
+
+        for _ in 0..(config.fan_dwell_secs as u64 * 2 + 2) {
+            step_pwm(55.0, &mut state, &mut pwm, &config);
+        }
+        assert_eq!(pwm, 150);
+
+        for _ in 0..200 {
+            step_pwm(55.0, &mut state, &mut pwm, &config);
+        }
+        assert_eq!(pwm, config.pwm_baseline);
+        assert!(matches!(state, FanState::Stable));
+    }
+
+    #[test]
+    fn recovery_switches_back_to_cooling_when_hot() {
+        let config = config();
+        let mut state = FanState::Recovering { ticks: 0 };
+        let mut pwm = 200;
+
+        let target = step_pwm(65.0, &mut state, &mut pwm, &config);
+
+        assert_eq!(target, 200);
+        assert!(matches!(state, FanState::Cooling { .. }));
+    }
 }
