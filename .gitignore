@@ -1,0 +1,27 @@
+# Build artifacts
+/target/
+
+# Rustfmt backups
+**/*.rs.bk
+
+# Local history databases (SQLite WAL sidecars included)
+*.db
+*.db-wal
+*.db-shm
+
+# Packaging output
+/dist/
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Patch/reject leftovers
+*.orig
+*.rej
+
+# Windows debug symbols
+*.pdb
