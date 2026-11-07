@@ -114,6 +114,10 @@ fn main() -> Result<()> {
         }
 
         tracing::info!(reason = exit_reason, "sb-daemon stopping");
-        Ok::<_, anyhow::Error>(())
+        if exit_reason == "shutdown" {
+            Ok::<(), anyhow::Error>(())
+        } else {
+            Err(anyhow::anyhow!("{exit_reason} task exited unexpectedly"))
+        }
     })
 }
