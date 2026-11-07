@@ -25,6 +25,19 @@ const PWM_MAX: f32 = 255.0;
 const FAN_FLOOR_MULT: f32 = 0.9;
 const SMOOTH_WINDOW: usize = 10;
 
+fn historical_margin(chart_w: usize) -> usize {
+    (chart_w / 10).max(1)
+}
+
+/// Keep the caret inside the middle 80% of the chart. Uses `max`/`min`
+/// instead of `usize::clamp` so that very narrow charts (where the lower
+/// bound would exceed the upper bound) do not panic.
+fn clamp_caret(caret_col: usize, chart_w: usize) -> usize {
+    let margin = historical_margin(chart_w);
+    let upper = chart_w.saturating_sub(margin + 1);
+    caret_col.max(margin).min(upper)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TimeFrame {
     Live,
@@ -143,17 +156,16 @@ impl TuiApp {
                                     return Ok(());
                                 }
                                 self.selection = self.historical_data.len().saturating_sub(1);
-                                let margin = (self.chart_w / 10).max(1);
-                                self.caret_col = self.chart_w.saturating_sub(margin + 1);
+                                self.caret_col = clamp_caret(usize::MAX, self.chart_w);
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
                                     let step = self.advance_repeat(KeyCode::Left);
                                     self.selection = self.selection.saturating_sub(step);
-                                    let margin = (self.chart_w / 10).max(1);
-                                    self.caret_col = self.caret_col
-                                        .saturating_sub(step)
-                                        .clamp(margin, self.chart_w.saturating_sub(margin + 1));
+                                    self.caret_col = clamp_caret(
+                                        self.caret_col.saturating_sub(step),
+                                        self.chart_w,
+                                    );
                                 }
                             }
                             KeyCode::Right => {
@@ -162,9 +174,10 @@ impl TuiApp {
                                     let data_len = self.historical_data.len();
                                     self.selection =
                                         (self.selection + step).min(data_len.saturating_sub(1));
-                                    let margin = (self.chart_w / 10).max(1);
-                                    self.caret_col = (self.caret_col + step)
-                                        .clamp(margin, self.chart_w.saturating_sub(margin + 1));
+                                    self.caret_col = clamp_caret(
+                                        self.caret_col.saturating_add(step),
+                                        self.chart_w,
+                                    );
                                 }
                             }
                             _ => {
@@ -219,7 +232,7 @@ impl TuiApp {
             crate::client::request_historical(&mut conn, bucket_secs, 2000).await?;
         self.timeframe = new;
         self.selection = self.historical_data.len().saturating_sub(1);
-        self.caret_col = usize::MAX; // clamp in next render
+        self.caret_col = clamp_caret(usize::MAX, self.chart_w);
         Ok(())
     }
 
@@ -263,8 +276,10 @@ impl TuiApp {
             .split(f.area());
 
         let chart_w = chunks[0].width.saturating_sub(2) as usize;
-        if chart_w != self.chart_w {
-            self.chart_w = chart_w;
+        self.chart_w = chart_w;
+        self.caret_col = clamp_caret(self.caret_col, chart_w);
+        if !self.historical_data.is_empty() {
+            self.selection = self.selection.min(self.historical_data.len() - 1);
         }
 
         let latest = if self.timeframe == TimeFrame::Live {
@@ -519,5 +534,29 @@ impl TuiApp {
         crossterm::event::read()?;
         ratatui::restore();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clamp_caret, historical_margin};
+
+    #[test]
+    fn caret_stays_in_the_central_80_percent() {
+        let chart_w = 100;
+        let margin = historical_margin(chart_w);
+        assert_eq!(margin, 10);
+        assert_eq!(clamp_caret(0, chart_w), margin);
+        assert_eq!(clamp_caret(usize::MAX, chart_w), chart_w - margin - 1);
+        assert_eq!(clamp_caret(50, chart_w), 50);
+    }
+
+    #[test]
+    fn caret_clamp_never_panics_on_narrow_charts() {
+        // Lower bound would exceed the upper bound if we used `clamp`.
+        for chart_w in 0..=4 {
+            let result = clamp_caret(usize::MAX, chart_w);
+            assert!(result <= chart_w);
+        }
     }
 }

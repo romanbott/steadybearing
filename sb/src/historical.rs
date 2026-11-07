@@ -131,6 +131,11 @@ pub fn render_pane(
     let chart_w = inner.width.max(1) as usize;
     let caret_h = 1;
     let chart_h = inner.height.max(1).saturating_sub(caret_h) as usize;
+    // No room for a caret row plus at least one bar row; nothing sensible
+    // can be laid out in a zero-height pane.
+    if chart_h == 0 {
+        return;
+    }
 
     let data_slice = &data[hs.min..hs.max];
     let bar_vals: Vec<f32> = data_slice
@@ -154,7 +159,7 @@ pub fn render_pane(
     let dec_len = decimated.len();
 
     let gap_val = range_min - (range_max - range_min).max(1.0);
-    let left_gap = caret_col.saturating_sub(hs.visual_col);
+    let left_gap = caret_col.saturating_sub(hs.visual_col).min(chart_w);
 
     let mut buckets = Vec::with_capacity(chart_w);
     for _ in 0..left_gap {
@@ -225,9 +230,10 @@ pub fn render_pane(
     if let Some(interval) = grid_secs {
         if !bar_vals.is_empty() {
             let ls = Style::default().fg(Color::White);
-            let mid = chart_h / 2 + 1;
-            let q3 = chart_h * 3 / 4 + 1;
-            let q1 = chart_h / 4 + 1;
+            let last_row = buf_h - 1;
+            let mid = (chart_h / 2 + 1).min(last_row);
+            let q3 = (chart_h * 3 / 4 + 1).min(last_row);
+            let q1 = (chart_h / 4 + 1).min(last_row);
 
             // horizontal labels: mid, q1, q3
             let mid_val = (range_min + range_max) / 2.0;
@@ -272,7 +278,7 @@ pub fn render_pane(
     for visual_row in 0..chart_h {
         // let y = visual_row + 1; // caret at row 0
         let y = chart_h - visual_row;
-        for (x, &val) in buckets.iter().enumerate() {
+        for (x, &val) in buckets.iter().take(chart_w).enumerate() {
             let norm = ((val - range_min) / range).clamp(0.0, 1.0);
             let bar_top = norm * chart_h as f32;
             let fill = (bar_top - visual_row as f32).clamp(0.0, 1.0);
@@ -291,7 +297,7 @@ pub fn render_pane(
     // ── layer 3: caret ──────────────────────────────────────────────
     let vis_col = caret_col.min(chart_w.saturating_sub(1));
     let caret_color = if vis_col >= left_gap && vis_col < left_gap + dec_len {
-        let val = buckets[vis_col];
+        let val = buckets.get(vis_col).copied().unwrap_or(gap_val);
         match kind {
             MetricKind::Usage => render::usage_color(val),
             MetricKind::Temp => render::temp_color(val),
