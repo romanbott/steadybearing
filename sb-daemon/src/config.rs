@@ -4,7 +4,7 @@ use serde::Deserialize;
 #[derive(Parser, Debug, Clone)]
 #[command(name = "sb-daemon")]
 pub struct Args {
-    #[arg(long, default_value = "/tmp/sb.sock")]
+    #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_SOCKET_PATH))]
     pub socket_path: String,
 
     #[arg(long, default_value = "/var/log/sb/telemetry.db")]
@@ -66,7 +66,7 @@ pub struct ConfigFile {
 }
 
 fn default_socket_path() -> String {
-    "/tmp/sb.sock".into()
+    sb_protocol::types::DEFAULT_SOCKET_PATH.into()
 }
 
 fn default_db_path() -> String {

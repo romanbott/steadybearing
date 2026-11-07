@@ -20,6 +20,6 @@ fn main() -> anyhow::Result<()> {
 
 #[derive(Parser)]
 pub struct Args {
-    #[arg(long, default_value = "/tmp/sb.sock")]
+    #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_SOCKET_PATH))]
     pub socket_path: String,
 }

@@ -51,7 +51,7 @@ pub const TIER2_CAPACITY: usize = 8640;
 pub const TIER3_CAPACITY: usize = 4320;
 pub const TIER4_CAPACITY: usize = 2016;
 
-pub const DEFAULT_SOCKET_PATH: &str = "/tmp/sb.sock";
+pub const DEFAULT_SOCKET_PATH: &str = "/run/sb/sb.sock";
 pub const DEFAULT_DB_PATH: &str = "/var/log/sb/telemetry.db";
 
 pub const PWM_BASELINE: u8 = 110;

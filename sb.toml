@@ -1,7 +1,7 @@
 # SteadyBearing daemon configuration
 # All fields are optional — defaults shown below.
 
-socket_path = "/tmp/sb.sock"
+socket_path = "/run/sb/sb.sock"
 
 # --- Database ---
 
