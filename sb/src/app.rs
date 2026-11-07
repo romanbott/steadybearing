@@ -177,16 +177,22 @@ impl TuiApp {
                             KeyCode::Char('t') => {
                                 self.key_repeat = None;
                                 let new = self.timeframe.next();
-                                if let Err(e) = self
+                                match self
                                     .switch_timeframe(&mut framed, &mut hist_framed, new)
                                     .await
                                 {
-                                    self.render_disconnected(terminal, &e.to_string())?;
-                                    return Ok(());
+                                    Ok(()) => {
+                                        self.selection =
+                                            self.historical_data.len().saturating_sub(1);
+                                        self.caret_col =
+                                            clamp_caret(usize::MAX, self.chart_w);
+                                        last_hist_poll = Instant::now();
+                                    }
+                                    Err(err) => {
+                                        self.status_msg =
+                                            Some(format!("cannot switch view: {err}"));
+                                    }
                                 }
-                                self.selection = self.historical_data.len().saturating_sub(1);
-                                self.caret_col = clamp_caret(usize::MAX, self.chart_w);
-                                last_hist_poll = Instant::now();
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
