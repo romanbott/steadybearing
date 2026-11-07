@@ -64,6 +64,7 @@ pub async fn request_historical(
 
     match bincode::deserialize::<IpcResponse>(&data)? {
         IpcResponse::Historical(rows) => Ok(rows),
+        IpcResponse::Error(message) => bail!("{message}"),
         other => bail!("Unexpected response: {:?}", other),
     }
 }

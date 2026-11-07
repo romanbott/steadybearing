@@ -93,23 +93,25 @@ pub fn spawn(
                                 config.db_path.clone()
                             };
 
-                            let rows = match tokio::task::spawn_blocking(move || {
+                            let result = tokio::task::spawn_blocking(move || {
                                 query_historical(&db_path, count)
                             })
-                            .await
-                            {
-                                Ok(Ok(rows)) => rows,
+                            .await;
+
+                            let response = match result {
+                                Ok(Ok(rows)) => IpcResponse::Historical(rows),
                                 Ok(Err(e)) => {
                                     tracing::error!(?e, "historical query failed");
-                                    continue;
+                                    IpcResponse::Error(format!("historical query failed: {e}"))
                                 }
                                 Err(e) => {
                                     tracing::error!(?e, "spawn_blocking join failed");
-                                    continue;
+                                    IpcResponse::Error(format!(
+                                        "historical query task failed: {e}"
+                                    ))
                                 }
                             };
 
-                            let response = IpcResponse::Historical(rows);
                             let response_bytes =
                                 bincode::serialize(&response).unwrap_or_default();
                             let _ = framed

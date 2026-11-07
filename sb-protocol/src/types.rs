@@ -43,6 +43,7 @@ pub enum IpcResponse {
     Snapshot(Snapshot),
     LiveTick(MetricSample),
     Historical(Vec<HistoricalRow>),
+    Error(String),
 }
 
 pub const TIER1_CAPACITY: usize = 3600;
