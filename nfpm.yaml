@@ -13,6 +13,8 @@ description: SteadyBearing fan control daemon and TUI
 vendor: Roman Contreras
 depends:
   - systemd
+  - libc6
+  - libgcc-s1
 contents:
   - src: target/release/sb-daemon
     dst: /usr/bin/sb-daemon
