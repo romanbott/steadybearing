@@ -40,3 +40,25 @@ pub(crate) fn restore_auto(path: &std::path::Path) -> anyhow::Result<()> {
     std::fs::write(path, b"2\n")?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::restore_auto;
+
+    #[test]
+    fn restore_auto_writes_automatic_mode() {
+        let base = std::env::temp_dir().join(format!(
+            "sb-signal-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let path = base.join("pwm2_enable");
+        std::fs::write(&path, "1\n").unwrap();
+
+        restore_auto(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "2\n");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}

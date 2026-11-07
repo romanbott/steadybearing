@@ -138,7 +138,76 @@ fn proc_stat_path() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::cpu_usage_percent;
+    use super::{cpu_usage_percent, Sampler};
+    use crate::hwmon::HwmonLocator;
+    use std::path::{Path, PathBuf};
+
+    fn fixture(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "sb-sampler-test-{}-{name}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    fn fixture_locator(base: &Path) -> HwmonLocator {
+        HwmonLocator {
+            coretemp_path: base.join("temp1_input"),
+            pwm_path: base.join("pwm2"),
+            pwm_enable_path: base.join("pwm2_enable"),
+            fan_input_path: base.join("fan1_input"),
+        }
+    }
+
+    #[test]
+    fn samples_fake_hwmon_and_cpu_counters() {
+        let base = fixture("sample");
+        let locator = fixture_locator(&base);
+        let proc_stat = base.join("proc_stat");
+
+        std::fs::write(&locator.coretemp_path, "45000\n").unwrap();
+        std::fs::write(&locator.fan_input_path, "2000\n").unwrap();
+        std::fs::write(&locator.pwm_path, "110\n").unwrap();
+        std::fs::write(&locator.pwm_enable_path, "2\n").unwrap();
+        std::fs::write(&proc_stat, "cpu  100 0 100 800 0 0 0 0 0 0\n").unwrap();
+
+        let sampler = Sampler::with_proc_path(locator, proc_stat.clone());
+
+        let first = sampler.sample().unwrap();
+        assert_eq!(first.cpu_temp, 45.0);
+        assert_eq!(first.cpu_usage, 0.0);
+        assert_eq!(first.fan_rpm, 2000);
+        assert_eq!(first.pwm_value, 110);
+
+        // 200 ticks elapsed, 50 of them idle -> 75% busy.
+        std::fs::write(&proc_stat, "cpu  200 0 150 850 0 0 0 0 0 0\n").unwrap();
+        let second = sampler.sample().unwrap();
+        assert!((second.cpu_usage - 75.0).abs() < 1e-6);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn malformed_fan_and_pwm_values_read_as_zero() {
+        let base = fixture("malformed");
+        let locator = fixture_locator(&base);
+        let proc_stat = base.join("proc_stat");
+
+        std::fs::write(&locator.coretemp_path, "45000\n").unwrap();
+        std::fs::write(&locator.fan_input_path, "not-a-number\n").unwrap();
+        std::fs::write(&locator.pwm_path, "nope\n").unwrap();
+        std::fs::write(&locator.pwm_enable_path, "2\n").unwrap();
+        std::fs::write(&proc_stat, "cpu  100 0 100 800 0 0 0 0 0 0\n").unwrap();
+
+        let sampler = Sampler::with_proc_path(locator, proc_stat);
+        let sample = sampler.sample().unwrap();
+        assert_eq!(sample.fan_rpm, 0);
+        assert_eq!(sample.pwm_value, 0);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn first_sample_is_zero() {

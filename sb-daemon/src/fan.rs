@@ -204,8 +204,9 @@ async fn apply_pwm(hwmon: &HwmonLocator, value: u8) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{step_pwm, FanState};
+    use super::{apply_pwm, step_pwm, FanState};
     use crate::config::Config;
+    use crate::hwmon::HwmonLocator;
 
     fn config() -> Config {
         Config {
@@ -259,6 +260,29 @@ mod tests {
         }
         assert_eq!(pwm, config.pwm_baseline);
         assert!(matches!(state, FanState::Stable));
+    }
+
+    #[tokio::test]
+    async fn apply_pwm_writes_the_value() {
+        let base = std::env::temp_dir().join(format!(
+            "sb-fan-pwm-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+
+        let pwm = base.join("pwm2");
+        let locator = HwmonLocator {
+            coretemp_path: base.join("temp1_input"),
+            pwm_path: pwm.clone(),
+            pwm_enable_path: base.join("pwm2_enable"),
+            fan_input_path: base.join("fan1_input"),
+        };
+
+        apply_pwm(&locator, 123).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&pwm).unwrap(), "123\n");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
