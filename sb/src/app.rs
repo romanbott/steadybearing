@@ -639,7 +639,12 @@ impl TuiApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_caret, follow_tail, historical_margin};
+    use super::{
+        clamp_caret, follow_tail, historical_margin, DisplayMode, TimeFrame, TuiApp,
+    };
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use sb_protocol::types::{HistoricalRow, MetricSample};
 
     #[test]
     fn caret_stays_in_the_central_80_percent() {
@@ -679,5 +684,83 @@ mod tests {
     fn follow_tail_handles_empty_data() {
         assert_eq!(follow_tail(100, 50, 0), 0);
         assert_eq!(follow_tail(0, 0, 5), 4);
+    }
+
+    fn sample(timestamp: i64) -> MetricSample {
+        MetricSample {
+            timestamp,
+            cpu_temp: 50.0,
+            cpu_usage: 10.0,
+            fan_rpm: 2000,
+            pwm_value: 128,
+        }
+    }
+
+    fn historical_row(timestamp: i64) -> HistoricalRow {
+        HistoricalRow {
+            timestamp,
+            temp_min: 40.0,
+            temp_max: 60.0,
+            temp_mean: 50.0,
+            usage_min: 5.0,
+            usage_max: 15.0,
+            usage_mean: 10.0,
+            rpm_mean: 2000.0,
+            pwm_mean: 128.0,
+        }
+    }
+
+    #[test]
+    fn render_never_panics_across_sizes_and_modes() {
+        let mut app = TuiApp::new("/tmp/sb-render-test.sock".into());
+        app.live_ticks = (0..200).map(sample).collect();
+        app.historical_data = (0..200).map(historical_row).collect();
+
+        let sizes = [
+            (1u16, 1u16),
+            (2, 2),
+            (3, 3),
+            (4, 4),
+            (10, 5),
+            (20, 10),
+            (40, 12),
+            (80, 24),
+            (120, 40),
+            (200, 50),
+        ];
+        let modes = [
+            DisplayMode::Raw,
+            DisplayMode::MA,
+            DisplayMode::Min,
+            DisplayMode::Max,
+        ];
+
+        for (width, height) in sizes {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+
+            for mode in modes {
+                app.mode = mode;
+                for show_grid in [false, true] {
+                    app.show_grid = show_grid;
+
+                    app.timeframe = TimeFrame::Live;
+                    terminal.draw(|frame| app.render(frame)).unwrap();
+
+                    app.timeframe = TimeFrame::Minute;
+                    for selection in [0, app.historical_data.len() / 2, app.historical_data.len() - 1] {
+                        app.selection = selection;
+                        for caret in [0, 10, app.chart_w.max(1), width as usize + 10] {
+                            app.caret_col = caret;
+                            terminal.draw(|frame| app.render(frame)).unwrap();
+                        }
+                    }
+
+                    app.timeframe = TimeFrame::Hourly;
+                    app.historical_data.clear();
+                    terminal.draw(|frame| app.render(frame)).unwrap();
+                    app.historical_data = (0..200).map(historical_row).collect();
+                }
+            }
+        }
     }
 }
