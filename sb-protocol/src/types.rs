@@ -26,9 +26,6 @@ pub struct HistoricalRow {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub tier1: Vec<MetricSample>,
-    pub tier2: Vec<MetricSample>,
-    pub tier3: Vec<MetricSample>,
-    pub tier4: Vec<MetricSample>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,9 +52,6 @@ pub enum IpcResponse {
 }
 
 pub const TIER1_CAPACITY: usize = 3600;
-pub const TIER2_CAPACITY: usize = 8640;
-pub const TIER3_CAPACITY: usize = 4320;
-pub const TIER4_CAPACITY: usize = 2016;
 
 pub const DEFAULT_SOCKET_PATH: &str = "/run/sb/sb.sock";
 pub const DEFAULT_DB_PATH: &str = "/var/lib/sb/history.db";

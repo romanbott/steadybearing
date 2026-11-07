@@ -1,6 +1,5 @@
 mod config;
 mod db;
-mod downsample;
 mod fan;
 mod hwmon;
 mod ipc;
@@ -60,7 +59,6 @@ fn main() -> Result<()> {
     rt.block_on(async {
         let store = store::TelemetryStore::new();
 
-        let ds_handle = downsample::spawn(store.clone());
         let fan_handle = fan::spawn(store.clone(), hwmon.clone(), tx.clone(), config.clone());
         let mut db_handle = db::spawn(store.clone(), config.clone(), db_shutdown_rx)?;
         let ipc_handle = ipc::spawn(
@@ -72,10 +70,6 @@ fn main() -> Result<()> {
 
         let mut db_finished = false;
         let exit_reason = tokio::select! {
-            r = ds_handle => {
-                tracing::error!(?r, "downsample task exited");
-                "downsample"
-            }
             r = fan_handle => {
                 tracing::error!(?r, "fan task exited");
                 "fan"

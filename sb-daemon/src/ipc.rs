@@ -145,9 +145,6 @@ pub fn spawn(
                         IpcRequest::SnapshotAll => {
                             let snapshot = sb_protocol::types::Snapshot {
                                 tier1: store.tier1.snapshot(),
-                                tier2: store.tier2.snapshot(),
-                                tier3: store.tier3.snapshot(),
-                                tier4: store.tier4.snapshot(),
                             };
                             let response = IpcResponse::Snapshot(snapshot);
                             let response_bytes =
