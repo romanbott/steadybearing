@@ -27,7 +27,14 @@ pub fn spawn(
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o666))?;
 
         loop {
-            let (stream, _addr) = listener.accept().await?;
+            let (stream, _addr) = match listener.accept().await {
+                Ok(pair) => pair,
+                Err(err) => {
+                    tracing::error!(?err, "ipc accept failed");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
             let store = store.clone();
             let tx = tx.clone();
             let config = config.clone();

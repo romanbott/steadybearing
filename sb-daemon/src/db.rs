@@ -73,7 +73,7 @@ pub fn spawn(
             let telemetry_path = config.db_path.clone();
             let retention_cutoff = now - (config.db_retention_days as u64 * 86400);
 
-            tokio::task::spawn_blocking(move || {
+            let telemetry_result = tokio::task::spawn_blocking(move || {
                 let conn = open(&telemetry_path)?;
                 for row in &minute_rows {
                     insert_row(&conn, row)?;
@@ -84,13 +84,25 @@ pub fn spawn(
                 )?;
                 Ok::<_, anyhow::Error>(())
             })
-            .await??;
+            .await;
+
+            match telemetry_result {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    tracing::error!(?err, "telemetry flush failed");
+                    continue;
+                }
+                Err(err) => {
+                    tracing::error!(?err, "telemetry flush task failed");
+                    continue;
+                }
+            }
 
             let telemetry_path = config.db_path.clone();
             let archive_path = config.db_archive_path.clone();
             let retention_days = config.db_retention_days;
 
-            tokio::task::spawn_blocking(move || {
+            let archive_result = tokio::task::spawn_blocking(move || {
                 let hour_rows =
                     build_hourly_from_minute_db(&telemetry_path, retention_days);
                 let conn = open(&archive_path)?;
@@ -99,7 +111,13 @@ pub fn spawn(
                 }
                 Ok::<_, anyhow::Error>(())
             })
-            .await??;
+            .await;
+
+            match archive_result {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => tracing::error!(?err, "archive rollup failed"),
+                Err(err) => tracing::error!(?err, "archive rollup task failed"),
+            }
         }
     }))
 }
