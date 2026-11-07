@@ -1,7 +1,7 @@
 use anyhow::bail;
 use futures::{SinkExt, StreamExt};
 use sb_protocol::types::{
-    HistoricalResolution, HistoricalRow, IpcRequest, IpcResponse, Snapshot,
+    HistoricalResolution, HistoricalRow, IpcRequest, IpcResponse, MetricSample,
 };
 use tokio::net::UnixStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -13,7 +13,7 @@ pub async fn connect(path: &str) -> anyhow::Result<IpcFramed> {
     Ok(Framed::new(stream, LengthDelimitedCodec::new()))
 }
 
-pub async fn request_snapshot(framed: &mut IpcFramed) -> anyhow::Result<Snapshot> {
+pub async fn request_snapshot(framed: &mut IpcFramed) -> anyhow::Result<Vec<MetricSample>> {
     let req_bytes = bincode::serialize(&IpcRequest::SnapshotAll)?;
     framed.send(bytes::Bytes::from(req_bytes)).await?;
 

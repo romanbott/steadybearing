@@ -161,7 +161,7 @@ impl TuiApp {
             };
 
         let live = framed.as_mut().expect("live connection");
-        let mut snapshot = match crate::client::request_snapshot(live).await {
+        let snapshot = match crate::client::request_snapshot(live).await {
             Ok(s) => s,
             Err(e) => {
                 self.render_disconnected(terminal, &e.to_string())?;
@@ -169,7 +169,7 @@ impl TuiApp {
             }
         };
 
-        self.live_ticks = std::mem::take(&mut snapshot.tier1).into();
+        self.live_ticks = snapshot.into();
         crate::client::request_stream_live(live).await?;
 
         let tick_rate = Duration::from_millis(TICK_RATE_MS);
@@ -293,11 +293,11 @@ impl TuiApp {
     ) -> anyhow::Result<()> {
         if new == TimeFrame::Live {
             let mut conn = crate::client::connect(&self.socket_path).await?;
-            let mut snap = crate::client::request_snapshot(&mut conn).await?;
+            let snap = crate::client::request_snapshot(&mut conn).await?;
             crate::client::request_stream_live(&mut conn).await?;
             *framed = Some(conn);
             *hist_framed = None;
-            self.live_ticks = std::mem::take(&mut snap.tier1).into();
+            self.live_ticks = snap.into();
             self.historical_data.clear();
             self.timeframe = TimeFrame::Live;
             self.status_msg = None;

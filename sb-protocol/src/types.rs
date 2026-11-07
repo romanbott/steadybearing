@@ -23,11 +23,6 @@ pub struct HistoricalRow {
     pub pwm_mean: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Snapshot {
-    pub tier1: Vec<MetricSample>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HistoricalResolution {
     TenSecond,
@@ -45,7 +40,7 @@ pub enum IpcRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcResponse {
-    Snapshot(Snapshot),
+    Snapshot(Vec<MetricSample>),
     LiveTick(MetricSample),
     Historical(Vec<HistoricalRow>),
     Error(String),

@@ -143,10 +143,8 @@ pub fn spawn(
 
                     match request {
                         IpcRequest::SnapshotAll => {
-                            let snapshot = sb_protocol::types::Snapshot {
-                                tier1: store.tier1.snapshot(),
-                            };
-                            let response = IpcResponse::Snapshot(snapshot);
+                            let response =
+                                IpcResponse::Snapshot(store.tier1.snapshot());
                             let response_bytes =
                                 bincode::serialize(&response).unwrap_or_default();
                             let _ = framed
