@@ -38,6 +38,17 @@ fn clamp_caret(caret_col: usize, chart_w: usize) -> usize {
     caret_col.max(margin).min(upper)
 }
 
+/// Keep the same distance from the right edge after a refresh, so a user
+/// sitting at the end follows new data while a scrolled user stays put.
+fn follow_tail(old_len: usize, selection: usize, new_len: usize) -> usize {
+    if new_len == 0 {
+        return 0;
+    }
+    let old_selection = selection.min(old_len.saturating_sub(1));
+    let from_end = old_len.saturating_sub(1).saturating_sub(old_selection);
+    new_len.saturating_sub(1).saturating_sub(from_end)
+}
+
 /// Restores the terminal on every exit path, including early `?` returns.
 struct TerminalRestore;
 
@@ -84,6 +95,7 @@ pub struct TuiApp {
     key_repeat: Option<(KeyCode, u32)>,
     last_key_time: Instant,
     show_grid: bool,
+    status_msg: Option<String>,
 }
 
 impl TuiApp {
@@ -100,6 +112,7 @@ impl TuiApp {
             key_repeat: None,
             last_key_time: Instant::now(),
             show_grid: true,
+            status_msg: None,
         }
     }
 
@@ -129,6 +142,8 @@ impl TuiApp {
 
         let tick_rate = Duration::from_millis(TICK_RATE_MS);
         let mut last_tick = Instant::now();
+        let mut hist_framed: Option<crate::client::IpcFramed> = None;
+        let mut last_hist_poll = Instant::now();
 
         loop {
             terminal.draw(|f| self.render(f))?;
@@ -139,6 +154,7 @@ impl TuiApp {
                     .unwrap_or(Duration::ZERO)
             } else {
                 Duration::from_secs(HISTORICAL_POLL_SECS)
+                    .saturating_sub(last_hist_poll.elapsed())
             };
 
             if event::poll(timeout)? {
@@ -161,12 +177,16 @@ impl TuiApp {
                             KeyCode::Char('t') => {
                                 self.key_repeat = None;
                                 let new = self.timeframe.next();
-                                if let Err(e) = self.switch_timeframe(&mut framed, new).await {
+                                if let Err(e) = self
+                                    .switch_timeframe(&mut framed, &mut hist_framed, new)
+                                    .await
+                                {
                                     self.render_disconnected(terminal, &e.to_string())?;
                                     return Ok(());
                                 }
                                 self.selection = self.historical_data.len().saturating_sub(1);
                                 self.caret_col = clamp_caret(usize::MAX, self.chart_w);
+                                last_hist_poll = Instant::now();
                             }
                             KeyCode::Left => {
                                 if self.timeframe != TimeFrame::Live {
@@ -198,6 +218,15 @@ impl TuiApp {
                 }
             }
 
+            if self.timeframe != TimeFrame::Live
+                && last_hist_poll.elapsed() >= Duration::from_secs(HISTORICAL_POLL_SECS)
+            {
+                if let Err(e) = self.refresh_historical(&mut hist_framed).await {
+                    self.status_msg = Some(format!("refresh failed: {e}"));
+                }
+                last_hist_poll = Instant::now();
+            }
+
             if self.timeframe == TimeFrame::Live && last_tick.elapsed() >= tick_rate {
                 match crate::client::read_next_tick(&mut framed).await {
                     Ok(sample) => {
@@ -218,15 +247,19 @@ impl TuiApp {
     async fn switch_timeframe(
         &mut self,
         framed: &mut crate::client::IpcFramed,
+        hist_framed: &mut Option<crate::client::IpcFramed>,
         new: TimeFrame,
     ) -> anyhow::Result<()> {
         if new == TimeFrame::Live {
-            *framed = crate::client::connect(&self.socket_path).await?;
-            let mut snap = crate::client::request_snapshot(framed).await?;
+            let mut conn = crate::client::connect(&self.socket_path).await?;
+            let mut snap = crate::client::request_snapshot(&mut conn).await?;
+            crate::client::request_stream_live(&mut conn).await?;
+            *framed = conn;
+            *hist_framed = None;
             self.live_ticks = std::mem::take(&mut snap.tier1).into();
-            self.timeframe = TimeFrame::Live;
             self.historical_data.clear();
-            crate::client::request_stream_live(framed).await?;
+            self.timeframe = TimeFrame::Live;
+            self.status_msg = None;
             return Ok(());
         }
 
@@ -236,12 +269,52 @@ impl TuiApp {
             TimeFrame::Live => unreachable!(),
         };
 
-        let mut conn = crate::client::connect(&self.socket_path).await?;
-        self.historical_data =
-            crate::client::request_historical(&mut conn, bucket_secs, 2000).await?;
+        if hist_framed.is_none() {
+            *hist_framed = Some(crate::client::connect(&self.socket_path).await?);
+        }
+        let conn = hist_framed.as_mut().expect("historical connection");
+        match crate::client::request_historical(conn, bucket_secs, 2000).await {
+            Ok(rows) => {
+                self.historical_data = rows;
+            }
+            Err(err) => {
+                *hist_framed = None;
+                return Err(err);
+            }
+        }
+
         self.timeframe = new;
         self.selection = self.historical_data.len().saturating_sub(1);
         self.caret_col = clamp_caret(usize::MAX, self.chart_w);
+        self.status_msg = None;
+        Ok(())
+    }
+
+    async fn refresh_historical(
+        &mut self,
+        hist_framed: &mut Option<crate::client::IpcFramed>,
+    ) -> anyhow::Result<()> {
+        let bucket_secs = match self.timeframe {
+            TimeFrame::Minute => 60_u32,
+            TimeFrame::Hourly => 3600,
+            TimeFrame::Live => return Ok(()),
+        };
+
+        if hist_framed.is_none() {
+            *hist_framed = Some(crate::client::connect(&self.socket_path).await?);
+        }
+        let conn = hist_framed.as_mut().expect("historical connection");
+        let rows = match crate::client::request_historical(conn, bucket_secs, 2000).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                *hist_framed = None;
+                return Err(err);
+            }
+        };
+
+        self.selection = follow_tail(self.historical_data.len(), self.selection, rows.len());
+        self.historical_data = rows;
+        self.status_msg = None;
         Ok(())
     }
 
@@ -371,14 +444,18 @@ impl TuiApp {
         } else {
             self.mode.label_historical()
         };
-        let line = Line::from(format!(
+        let mut footer = format!(
             " m: {}  t: {}  g:{} {}  q: quit",
             mode_label,
             self.timeframe.label(),
             if self.show_grid { "on" } else { "off" },
             scroll_status,
-        ));
-        f.render_widget(line, chunks[3]);
+        );
+        if let Some(msg) = &self.status_msg {
+            footer.push_str("  ");
+            footer.push_str(msg);
+        }
+        f.render_widget(Line::from(footer), chunks[3]);
     }
 
     fn render_metric_pane(
@@ -547,7 +624,7 @@ impl TuiApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_caret, historical_margin};
+    use super::{clamp_caret, follow_tail, historical_margin};
 
     #[test]
     fn caret_stays_in_the_central_80_percent() {
@@ -566,5 +643,26 @@ mod tests {
             let result = clamp_caret(usize::MAX, chart_w);
             assert!(result <= chart_w);
         }
+    }
+
+    #[test]
+    fn follow_tail_keeps_the_user_at_the_end() {
+        assert_eq!(follow_tail(100, 99, 110), 109);
+    }
+
+    #[test]
+    fn follow_tail_preserves_distance_from_the_end() {
+        assert_eq!(follow_tail(100, 90, 110), 100);
+    }
+
+    #[test]
+    fn follow_tail_clamps_when_data_shrinks() {
+        assert_eq!(follow_tail(100, 0, 10), 0);
+    }
+
+    #[test]
+    fn follow_tail_handles_empty_data() {
+        assert_eq!(follow_tail(100, 50, 0), 0);
+        assert_eq!(follow_tail(0, 0, 5), 4);
     }
 }
