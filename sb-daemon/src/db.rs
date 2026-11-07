@@ -71,7 +71,7 @@ pub fn spawn(
             let minute_rows = complete_buckets(&snapshot, 60);
 
             let telemetry_path = config.db_path.clone();
-            let retention_cutoff = now - (config.db_retention_days as u64 * 86400);
+            let retention_cutoff = now.saturating_sub(config.db_retention_days as u64 * 86400);
 
             let telemetry_result = tokio::task::spawn_blocking(move || {
                 let conn = open(&telemetry_path)?;
