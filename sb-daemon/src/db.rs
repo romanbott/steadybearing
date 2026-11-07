@@ -68,7 +68,7 @@ pub fn spawn(
                 .unwrap_or_default()
                 .as_secs();
 
-            let minute_rows = bucket_by(&snapshot, 60);
+            let minute_rows = complete_buckets(&snapshot, 60);
 
             let telemetry_path = config.db_path.clone();
             let retention_cutoff = now - (config.db_retention_days as u64 * 86400);
@@ -224,6 +224,26 @@ fn init_db(path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Bucket samples, keeping only buckets that are fully covered by the
+/// snapshot. The oldest bucket may be truncated by the ring buffer and the
+/// newest one is still in progress; upserting either would overwrite a
+/// complete rollup with partial min/max/mean values.
+fn complete_buckets(
+    samples: &[sb_protocol::types::MetricSample],
+    interval: i64,
+) -> Vec<RollupRow> {
+    let (Some(oldest), Some(newest)) = (samples.first(), samples.last()) else {
+        return Vec::new();
+    };
+    let oldest = oldest.timestamp;
+    let newest = newest.timestamp;
+
+    bucket_by(samples, interval)
+        .into_iter()
+        .filter(|row| row.ts >= oldest && row.ts + interval - 1 <= newest)
+        .collect()
+}
+
 fn bucket_by(
     samples: &[sb_protocol::types::MetricSample],
     interval: i64,
@@ -274,7 +294,48 @@ fn insert_row(conn: &rusqlite::Connection, row: &RollupRow) -> anyhow::Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::open;
+    use super::{complete_buckets, open};
+    use sb_protocol::types::MetricSample;
+
+    fn sample(timestamp: i64) -> MetricSample {
+        MetricSample {
+            timestamp,
+            cpu_temp: 50.0,
+            cpu_usage: 10.0,
+            fan_rpm: 2000,
+            pwm_value: 128,
+        }
+    }
+
+    #[test]
+    fn complete_buckets_drops_partial_edges() {
+        // Second 30 of minute 0 through second 20 of minute 2.
+        let samples: Vec<_> = (30..=140).map(sample).collect();
+        let rows = complete_buckets(&samples, 60);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ts, 60);
+    }
+
+    #[test]
+    fn complete_buckets_keeps_fully_covered_buckets() {
+        let samples: Vec<_> = (60..=179).map(sample).collect();
+        let rows = complete_buckets(&samples, 60);
+        let timestamps: Vec<i64> = rows.iter().map(|row| row.ts).collect();
+        assert_eq!(timestamps, vec![60, 120]);
+    }
+
+    #[test]
+    fn complete_buckets_skips_the_in_progress_bucket() {
+        let samples: Vec<_> = (0..=130).map(sample).collect();
+        let rows = complete_buckets(&samples, 60);
+        let timestamps: Vec<i64> = rows.iter().map(|row| row.ts).collect();
+        assert_eq!(timestamps, vec![0, 60]);
+    }
+
+    #[test]
+    fn complete_buckets_handles_empty_input() {
+        assert!(complete_buckets(&[], 60).is_empty());
+    }
 
     #[test]
     fn open_enables_wal_and_busy_timeout() {
