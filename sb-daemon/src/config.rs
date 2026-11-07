@@ -10,9 +10,6 @@ pub struct Args {
     #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_DB_PATH))]
     pub db_path: String,
 
-    #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_DB_ARCHIVE_PATH))]
-    pub db_archive_path: String,
-
     #[arg(long)]
     pub config_file: Option<String>,
 
@@ -31,8 +28,8 @@ pub struct ConfigFile {
     #[serde(default = "default_db_path")]
     pub db_path: String,
 
-    #[serde(default = "default_db_archive_path")]
-    pub db_archive_path: String,
+    #[serde(default)]
+    pub retention: RetentionConfig,
 
     #[serde(default = "default_pwm_baseline")]
     pub pwm_baseline: u8,
@@ -63,9 +60,24 @@ pub struct ConfigFile {
 
     #[serde(default = "default_db_flush_secs")]
     pub db_flush_secs: f32,
+}
 
-    #[serde(default = "default_db_retention_days")]
-    pub db_retention_days: u32,
+#[derive(Debug, Clone, Deserialize)]
+pub struct RetentionConfig {
+    #[serde(default = "default_ten_second_days")]
+    pub ten_second_days: u32,
+
+    #[serde(default = "default_minute_days")]
+    pub minute_days: u32,
+}
+
+impl Default for RetentionConfig {
+    fn default() -> Self {
+        Self {
+            ten_second_days: default_ten_second_days(),
+            minute_days: default_minute_days(),
+        }
+    }
 }
 
 fn default_socket_path() -> String {
@@ -76,8 +88,12 @@ fn default_db_path() -> String {
     sb_protocol::types::DEFAULT_DB_PATH.into()
 }
 
-fn default_db_archive_path() -> String {
-    sb_protocol::types::DEFAULT_DB_ARCHIVE_PATH.into()
+fn default_ten_second_days() -> u32 {
+    1
+}
+
+fn default_minute_days() -> u32 {
+    7
 }
 
 fn default_pwm_baseline() -> u8 {
@@ -117,11 +133,7 @@ fn default_fan_drift_secs() -> f32 {
 }
 
 fn default_db_flush_secs() -> f32 {
-    600.0
-}
-
-fn default_db_retention_days() -> u32 {
-    7
+    60.0
 }
 
 #[derive(Debug, Clone)]
@@ -129,9 +141,8 @@ pub struct Config {
     pub socket_path: String,
     pub socket_gid: Option<u32>,
     pub db_path: String,
-    pub db_archive_path: String,
     pub db_flush_secs: f32,
-    pub db_retention_days: u32,
+    pub retention: RetentionConfig,
     pub pwm_baseline: u8,
     pub fan_soft_min: f32,
     pub fan_soft_max: f32,
@@ -168,18 +179,14 @@ impl Config {
                 .as_ref()
                 .map(|c| c.db_path.clone())
                 .unwrap_or(args.db_path),
-            db_archive_path: config_file
-                .as_ref()
-                .map(|c| c.db_archive_path.clone())
-                .unwrap_or(args.db_archive_path),
             db_flush_secs: config_file
                 .as_ref()
                 .map(|c| c.db_flush_secs)
                 .unwrap_or(default_db_flush_secs()),
-            db_retention_days: config_file
+            retention: config_file
                 .as_ref()
-                .map(|c| c.db_retention_days)
-                .unwrap_or(default_db_retention_days()),
+                .map(|c| c.retention.clone())
+                .unwrap_or_default(),
             pwm_baseline: config_file
                 .as_ref()
                 .map(|c| c.pwm_baseline)
@@ -280,16 +287,15 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::{Config, ConfigFile, RetentionConfig};
 
     fn valid_config() -> Config {
         Config {
             socket_path: "/tmp/sb.sock".into(),
             socket_gid: None,
             db_path: "/tmp/sb.db".into(),
-            db_archive_path: "/tmp/sb-archive.db".into(),
-            db_flush_secs: 600.0,
-            db_retention_days: 7,
+            db_flush_secs: 60.0,
+            retention: RetentionConfig::default(),
             pwm_baseline: 110,
             fan_soft_min: 40.0,
             fan_soft_max: 60.0,
@@ -324,6 +330,21 @@ mod tests {
         let mut config = valid_config();
         config.fan_soft_max = 90.0;
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn retention_defaults_apply() {
+        let parsed: ConfigFile =
+            toml::from_str("db_path = \"/tmp/history.db\"").unwrap();
+        assert_eq!(parsed.retention.ten_second_days, 1);
+        assert_eq!(parsed.retention.minute_days, 7);
+
+        let parsed: ConfigFile = toml::from_str(
+            "[retention]\nten_second_days = 2\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.retention.ten_second_days, 2);
+        assert_eq!(parsed.retention.minute_days, 7);
     }
 
     #[test]

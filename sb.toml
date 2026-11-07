@@ -9,17 +9,17 @@ socket_path = "/run/sb/sb.sock"
 
 # --- Database ---
 
-# Minute-resolution telemetry, pruned after retention_days
-db_path = "/var/log/sb/telemetry.db"
+# Unified history database. Stores 10 s, 1 m, 10 m and 1 h tiers.
+db_path = "/var/lib/sb/history.db"
 
-# Hourly-resolution archive, kept forever
-db_archive_path = "/var/log/sb/archive.db"
+# Seconds between DB flushes; 60 s keeps the 10 s view fresh.
+db_flush_secs = 60
 
-# Seconds between DB flushes
-db_flush_secs = 600
-
-# Days to retain minute-resolution data
-db_retention_days = 7
+[retention]
+# 10 s history is kept for one day; 1 m history for seven days.
+# 10 m and 1 h history are kept forever.
+ten_second_days = 1
+minute_days = 7
 
 # --- Fan control (hysteresis) ---
 

@@ -9,9 +9,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use sb_protocol::types::{
-    HistoricalResolution, HistoricalRow, IpcRequest, IpcResponse, MetricSample,
-};
+use sb_protocol::types::{IpcRequest, IpcResponse, MetricSample};
 
 use crate::config::Config;
 use crate::store::TelemetryStore;
@@ -184,16 +182,11 @@ pub fn spawn(
                             }
                         }
                         IpcRequest::Historical { resolution, count } => {
-                            let db_path = match resolution {
-                                HistoricalResolution::Hourly => {
-                                    config.db_archive_path.clone()
-                                }
-                                HistoricalResolution::Minute => config.db_path.clone(),
-                            };
+                            let db_path = config.db_path.clone();
                             let count = count.min(MAX_HISTORICAL_ROWS);
 
                             let result = tokio::task::spawn_blocking(move || {
-                                query_historical(&db_path, count)
+                                crate::db::query_historical(&db_path, resolution, count)
                             })
                             .await;
 
@@ -222,33 +215,6 @@ pub fn spawn(
             });
         }
     }))
-}
-
-fn query_historical(path: &str, count: usize) -> anyhow::Result<Vec<HistoricalRow>> {
-    let conn = crate::db::open(path)?;
-    let mut stmt = conn.prepare(
-        "SELECT bucket_ts, temp_min, temp_max, temp_mean,
-                usage_min, usage_max, usage_mean, rpm_mean, pwm_mean
-         FROM rollups ORDER BY bucket_ts DESC LIMIT ?1",
-    )?;
-    let mut rows: Vec<HistoricalRow> = stmt
-        .query_map(rusqlite::params![count as i64], |row| {
-            Ok(HistoricalRow {
-                timestamp: row.get(0)?,
-                temp_min: row.get::<_, f64>(1)? as f32,
-                temp_max: row.get::<_, f64>(2)? as f32,
-                temp_mean: row.get::<_, f64>(3)? as f32,
-                usage_min: row.get::<_, f64>(4)? as f32,
-                usage_max: row.get::<_, f64>(5)? as f32,
-                usage_mean: row.get::<_, f64>(6)? as f32,
-                rpm_mean: row.get::<_, f64>(7)? as f32,
-                pwm_mean: row.get::<_, f64>(8)? as f32,
-            })
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
-    rows.reverse();
-    Ok(rows)
 }
 
 #[cfg(test)]

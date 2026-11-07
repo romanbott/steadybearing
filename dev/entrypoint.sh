@@ -10,8 +10,7 @@ work=${SB_WORK:-/tmp/sb-sim}
 hwmon="$work/hwmon"
 proc_stat="$work/proc_stat"
 socket="/run/sb/sb.sock"
-db="$work/telemetry.db"
-archive="$work/archive.db"
+db="$work/history.db"
 
 mkdir -p "$hwmon/hwmon0" "$hwmon/hwmon1" /run/sb "$work"
 printf 'coretemp\n' > "$hwmon/hwmon0/name"
@@ -25,7 +24,6 @@ printf 'cpu  100 0 100 800 0 0 0 0 0 0\n' > "$proc_stat"
 cat > "$work/harness.toml" <<EOF
 socket_path = "$socket"
 db_path = "$db"
-db_archive_path = "$archive"
 db_flush_secs = 10
 EOF
 

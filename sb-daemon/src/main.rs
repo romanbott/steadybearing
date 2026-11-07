@@ -52,9 +52,6 @@ fn main() -> Result<()> {
     if let Some(parent) = std::path::Path::new(&config.db_path).parent() {
         std::fs::create_dir_all(parent)?;
     }
-    if let Some(parent) = std::path::Path::new(&config.db_archive_path).parent() {
-        std::fs::create_dir_all(parent)?;
-    }
 
     let (tx, _rx) = broadcast::channel::<MetricSample>(256);
     let (db_shutdown_tx, db_shutdown_rx) = tokio::sync::watch::channel(false);

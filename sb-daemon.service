@@ -5,9 +5,10 @@ After=multi-user.target
 [Service]
 Type=simple
 Group=sb
+StateDirectory=sb
+StateDirectoryMode=0750
 RuntimeDirectory=sb
 RuntimeDirectoryMode=0750
-ExecStartPre=/usr/bin/mkdir -p /var/log/sb
 ExecStart=/usr/local/bin/sb-daemon -v
 Restart=always
 RestartSec=10
