@@ -121,15 +121,17 @@ impl TuiApp {
         let _restore = TerminalRestore;
         terminal.clear()?;
 
-        let mut framed = match crate::client::connect(&self.socket_path).await {
-            Ok(f) => f,
-            Err(e) => {
-                self.render_disconnected(terminal, &e.to_string())?;
-                return Ok(());
-            }
-        };
+        let mut framed: Option<crate::client::IpcFramed> =
+            match crate::client::connect(&self.socket_path).await {
+                Ok(f) => Some(f),
+                Err(e) => {
+                    self.render_disconnected(terminal, &e.to_string())?;
+                    return Ok(());
+                }
+            };
 
-        let mut snapshot = match crate::client::request_snapshot(&mut framed).await {
+        let live = framed.as_mut().expect("live connection");
+        let mut snapshot = match crate::client::request_snapshot(live).await {
             Ok(s) => s,
             Err(e) => {
                 self.render_disconnected(terminal, &e.to_string())?;
@@ -138,7 +140,7 @@ impl TuiApp {
         };
 
         self.live_ticks = std::mem::take(&mut snapshot.tier1).into();
-        crate::client::request_stream_live(&mut framed).await?;
+        crate::client::request_stream_live(live).await?;
 
         let tick_rate = Duration::from_millis(TICK_RATE_MS);
         let mut last_tick = Instant::now();
@@ -234,7 +236,10 @@ impl TuiApp {
             }
 
             if self.timeframe == TimeFrame::Live && last_tick.elapsed() >= tick_rate {
-                match crate::client::read_next_tick(&mut framed).await {
+                let Some(live) = framed.as_mut() else {
+                    break;
+                };
+                match crate::client::read_next_tick(live).await {
                     Ok(sample) => {
                         if self.live_ticks.len() >= MAX_LIVE_SAMPLES {
                             self.live_ticks.pop_front();
@@ -252,7 +257,7 @@ impl TuiApp {
 
     async fn switch_timeframe(
         &mut self,
-        framed: &mut crate::client::IpcFramed,
+        framed: &mut Option<crate::client::IpcFramed>,
         hist_framed: &mut Option<crate::client::IpcFramed>,
         new: TimeFrame,
     ) -> anyhow::Result<()> {
@@ -260,7 +265,7 @@ impl TuiApp {
             let mut conn = crate::client::connect(&self.socket_path).await?;
             let mut snap = crate::client::request_snapshot(&mut conn).await?;
             crate::client::request_stream_live(&mut conn).await?;
-            *framed = conn;
+            *framed = Some(conn);
             *hist_framed = None;
             self.live_ticks = std::mem::take(&mut snap.tier1).into();
             self.historical_data.clear();
@@ -293,6 +298,8 @@ impl TuiApp {
         self.selection = self.historical_data.len().saturating_sub(1);
         self.caret_col = clamp_caret(usize::MAX, self.chart_w);
         self.status_msg = None;
+        // The live snapshot stream is not consumed while viewing history.
+        *framed = None;
         Ok(())
     }
 
