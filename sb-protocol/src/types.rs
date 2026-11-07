@@ -31,11 +31,17 @@ pub struct Snapshot {
     pub tier4: Vec<MetricSample>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HistoricalResolution {
+    Minute,
+    Hourly,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcRequest {
     SnapshotAll,
     StreamLive,
-    Historical { bucket_secs: u32, count: usize },
+    Historical { resolution: HistoricalResolution, count: usize },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,8 @@
 use anyhow::bail;
 use futures::{SinkExt, StreamExt};
-use sb_protocol::types::{HistoricalRow, IpcRequest, IpcResponse, Snapshot};
+use sb_protocol::types::{
+    HistoricalResolution, HistoricalRow, IpcRequest, IpcResponse, Snapshot,
+};
 use tokio::net::UnixStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
@@ -50,10 +52,10 @@ pub async fn read_next_tick(
 
 pub async fn request_historical(
     framed: &mut IpcFramed,
-    bucket_secs: u32,
+    resolution: HistoricalResolution,
     count: usize,
 ) -> anyhow::Result<Vec<HistoricalRow>> {
-    let req_bytes = bincode::serialize(&IpcRequest::Historical { bucket_secs, count })?;
+    let req_bytes = bincode::serialize(&IpcRequest::Historical { resolution, count })?;
     framed.send(bytes::Bytes::from(req_bytes)).await?;
 
     let data = match framed.next().await {

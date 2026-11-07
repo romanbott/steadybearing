@@ -8,7 +8,9 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 
-use sb_protocol::types::{HistoricalRow, MetricSample, FAN_MAX_RPM, FAN_MIN_RPM};
+use sb_protocol::types::{
+    HistoricalResolution, HistoricalRow, MetricSample, FAN_MAX_RPM, FAN_MIN_RPM,
+};
 
 use crate::chart;
 use crate::historical::{self, DisplayMode, HistState};
@@ -274,9 +276,9 @@ impl TuiApp {
             return Ok(());
         }
 
-        let bucket_secs = match new {
-            TimeFrame::Minute => 60_u32,
-            TimeFrame::Hourly => 3600,
+        let resolution = match new {
+            TimeFrame::Minute => HistoricalResolution::Minute,
+            TimeFrame::Hourly => HistoricalResolution::Hourly,
             TimeFrame::Live => unreachable!(),
         };
 
@@ -284,7 +286,7 @@ impl TuiApp {
             *hist_framed = Some(crate::client::connect(&self.socket_path).await?);
         }
         let conn = hist_framed.as_mut().expect("historical connection");
-        match crate::client::request_historical(conn, bucket_secs, 2000).await {
+        match crate::client::request_historical(conn, resolution, 2000).await {
             Ok(rows) => {
                 self.historical_data = rows;
             }
@@ -307,9 +309,9 @@ impl TuiApp {
         &mut self,
         hist_framed: &mut Option<crate::client::IpcFramed>,
     ) -> anyhow::Result<()> {
-        let bucket_secs = match self.timeframe {
-            TimeFrame::Minute => 60_u32,
-            TimeFrame::Hourly => 3600,
+        let resolution = match self.timeframe {
+            TimeFrame::Minute => HistoricalResolution::Minute,
+            TimeFrame::Hourly => HistoricalResolution::Hourly,
             TimeFrame::Live => return Ok(()),
         };
 
@@ -317,7 +319,7 @@ impl TuiApp {
             *hist_framed = Some(crate::client::connect(&self.socket_path).await?);
         }
         let conn = hist_framed.as_mut().expect("historical connection");
-        let rows = match crate::client::request_historical(conn, bucket_secs, 2000).await {
+        let rows = match crate::client::request_historical(conn, resolution, 2000).await {
             Ok(rows) => rows,
             Err(err) => {
                 *hist_framed = None;

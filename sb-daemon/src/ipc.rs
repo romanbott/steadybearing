@@ -9,7 +9,9 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use sb_protocol::types::{HistoricalRow, IpcRequest, IpcResponse, MetricSample};
+use sb_protocol::types::{
+    HistoricalResolution, HistoricalRow, IpcRequest, IpcResponse, MetricSample,
+};
 
 use crate::config::Config;
 use crate::store::TelemetryStore;
@@ -181,11 +183,12 @@ pub fn spawn(
                                 }
                             }
                         }
-                        IpcRequest::Historical { bucket_secs, count } => {
-                            let db_path = if bucket_secs >= 3600 {
-                                config.db_archive_path.clone()
-                            } else {
-                                config.db_path.clone()
+                        IpcRequest::Historical { resolution, count } => {
+                            let db_path = match resolution {
+                                HistoricalResolution::Hourly => {
+                                    config.db_archive_path.clone()
+                                }
+                                HistoricalResolution::Minute => config.db_path.clone(),
                             };
                             let count = count.min(MAX_HISTORICAL_ROWS);
 
