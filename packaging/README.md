@@ -10,6 +10,10 @@ portable release tarball.
 - Debian bookworm (or a `debian:bookworm` container) for binaries compatible
   with the target glibc
 
+> Build the release binaries in the oldest Debian/glibc environment you need
+> to support. Building on a newer host (for example Fedora) can produce
+> binaries that require a newer glibc than the target has.
+
 ## Build artifacts
 
 ```sh
