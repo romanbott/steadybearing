@@ -1,0 +1,50 @@
+# Build with:
+#   VERSION=0.1.0 ARCH=amd64 nfpm package -f nfpm.yaml -p deb -t dist/
+#
+# The Makefile exports VERSION and ARCH and provides a `make deb` target.
+name: sb
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: Roman Contreras <roman.contreras@ciencias.unam.mx>
+description: SteadyBearing fan control daemon and TUI
+vendor: Roman Contreras
+depends:
+  - systemd
+contents:
+  - src: target/release/sb-daemon
+    dst: /usr/bin/sb-daemon
+    file_info:
+      mode: 0755
+  - src: target/release/sb
+    dst: /usr/bin/sb
+    file_info:
+      mode: 0755
+  - src: target/release/examples/migrate_history
+    dst: /usr/lib/sb/migrate-history
+    file_info:
+      mode: 0755
+  - src: sb-daemon.service
+    dst: /lib/systemd/system/sb-daemon.service
+    file_info:
+      mode: 0644
+  - src: sb.toml
+    dst: /etc/sb/sb.toml
+    type: config|noreplace
+    file_info:
+      mode: 0644
+  - src: packaging/sysusers.d/sb.conf
+    dst: /usr/lib/sysusers.d/sb.conf
+    file_info:
+      mode: 0644
+  - src: README.md
+    dst: /usr/share/doc/sb/README.md
+    file_info:
+      mode: 0644
+scripts:
+  preinstall: packaging/scripts/preinstall.sh
+  postinstall: packaging/scripts/postinstall.sh
+  preremove: packaging/scripts/preremove.sh
+  postremove: packaging/scripts/postremove.sh
