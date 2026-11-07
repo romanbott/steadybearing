@@ -66,7 +66,12 @@ fn main() -> Result<()> {
         let ds_handle = downsample::spawn(store.clone());
         let fan_handle = fan::spawn(store.clone(), hwmon.clone(), tx.clone(), config.clone());
         let mut db_handle = db::spawn(store.clone(), config.clone(), db_shutdown_rx)?;
-        let ipc_handle = ipc::spawn(store.clone(), config.socket_path.clone(), tx.clone(), config.clone());
+        let ipc_handle = ipc::spawn(
+            store.clone(),
+            config.socket_path.clone(),
+            tx.clone(),
+            config.clone(),
+        )?;
 
         let mut db_finished = false;
         let exit_reason = tokio::select! {

@@ -11,19 +11,64 @@ use sb_protocol::types::{HistoricalRow, IpcRequest, IpcResponse, MetricSample};
 use crate::config::Config;
 use crate::store::TelemetryStore;
 
+/// Held for the lifetime of the daemon. The OS releases the lock when the
+/// process exits, so the file itself is intentionally left in place.
+pub struct InstanceLock {
+    _file: std::fs::File,
+}
+
+impl InstanceLock {
+    pub fn acquire(socket_path: &str) -> anyhow::Result<Self> {
+        let path = format!("{socket_path}.lock");
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&path)?;
+
+        match file.try_lock() {
+            Ok(()) => Ok(Self { _file: file }),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                anyhow::bail!("another sb-daemon is already running (lock: {path})")
+            }
+            Err(std::fs::TryLockError::Error(err)) => Err(err.into()),
+        }
+    }
+}
+
+struct SocketCleanup {
+    path: String,
+}
+
+impl Drop for SocketCleanup {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 pub fn spawn(
     store: TelemetryStore,
     socket_path: String,
     tx: broadcast::Sender<MetricSample>,
     config: Config,
-) -> JoinHandle<anyhow::Result<()>> {
-    tokio::spawn(async move {
+) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
+    let lock = InstanceLock::acquire(&socket_path)?;
+
+    Ok(tokio::spawn(async move {
+        let _lock = lock;
         let _ = tokio::fs::remove_file(&socket_path).await;
         if let Some(parent) = std::path::Path::new(&socket_path).parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
 
         let listener = UnixListener::bind(&socket_path)?;
+        let _cleanup = SocketCleanup {
+            path: socket_path.clone(),
+        };
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o666))?;
 
         loop {
@@ -129,7 +174,31 @@ pub fn spawn(
                 }
             });
         }
-    })
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InstanceLock;
+
+    #[test]
+    fn only_one_instance_can_hold_the_lock() {
+        let path = std::env::temp_dir().join(format!(
+            "sb-lock-test-{}.sock",
+            std::process::id()
+        ));
+        let path_str = path.to_string_lossy().to_string();
+        let lock_path = format!("{path_str}.lock");
+        let _ = std::fs::remove_file(&lock_path);
+
+        let first = InstanceLock::acquire(&path_str).expect("first lock");
+        assert!(InstanceLock::acquire(&path_str).is_err());
+
+        drop(first);
+        assert!(InstanceLock::acquire(&path_str).is_ok());
+
+        let _ = std::fs::remove_file(&lock_path);
+    }
 }
 
 fn query_historical(path: &str, count: usize) -> anyhow::Result<Vec<HistoricalRow>> {
