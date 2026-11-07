@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::config::Config;
@@ -44,6 +45,7 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS rollups (
 pub fn spawn(
     store: TelemetryStore,
     config: Config,
+    mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
     create_dir_if_needed(&config.db_path)?;
     create_dir_if_needed(&config.db_archive_path)?;
@@ -56,11 +58,24 @@ pub fn spawn(
         interval.tick().await;
 
         loop {
-            interval.tick().await;
-            if let Err(err) = flush_once(&store, &config).await {
-                tracing::error!(?err, "telemetry flush failed");
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(err) = flush_once(&store, &config).await {
+                        tracing::error!(?err, "telemetry flush failed");
+                    }
+                }
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        break;
+                    }
+                }
             }
         }
+
+        if let Err(err) = flush_once(&store, &config).await {
+            tracing::error!(?err, "final telemetry flush failed");
+        }
+        Ok(())
     }))
 }
 
@@ -395,6 +410,57 @@ mod tests {
             vec![minute_start - 180, minute_start - 120, minute_start - 60]
         );
         drop(stmt);
+        drop(conn);
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{path_str}{suffix}"));
+            let _ = std::fs::remove_file(format!("{archive_str}{suffix}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn shutdown_triggers_a_final_flush() {
+        let base = std::env::temp_dir();
+        let path = base.join(format!("sb-shutdown-test-{}.db", std::process::id()));
+        let archive =
+            base.join(format!("sb-shutdown-archive-test-{}.db", std::process::id()));
+        let path_str = path.to_string_lossy().to_string();
+        let archive_str = archive.to_string_lossy().to_string();
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{path_str}{suffix}"));
+            let _ = std::fs::remove_file(format!("{archive_str}{suffix}"));
+        }
+
+        let config = test_config(path_str.clone(), archive_str.clone());
+        let store = TelemetryStore::new();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let minute_start = now / 60 * 60;
+        for ts in (minute_start - 180)..minute_start {
+            store.tier1.push(sample(ts));
+        }
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let handle = super::spawn(store, config, shutdown_rx).unwrap();
+        shutdown_tx.send(true).unwrap();
+
+        let joined = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            handle,
+        )
+        .await
+        .expect("db task to stop");
+        assert!(joined.is_ok(), "db task panicked");
+        assert!(joined.unwrap().is_ok(), "final flush failed");
+
+        let conn = open(&path_str).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM rollups", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 3);
         drop(conn);
 
         for suffix in ["", "-wal", "-shm"] {

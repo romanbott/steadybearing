@@ -57,6 +57,7 @@ fn main() -> Result<()> {
     }
 
     let (tx, _rx) = broadcast::channel::<MetricSample>(256);
+    let (db_shutdown_tx, db_shutdown_rx) = tokio::sync::watch::channel(false);
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
@@ -64,27 +65,50 @@ fn main() -> Result<()> {
 
         let ds_handle = downsample::spawn(store.clone());
         let fan_handle = fan::spawn(store.clone(), hwmon.clone(), tx.clone(), config.clone());
-        let db_handle = db::spawn(store.clone(), config.clone())?;
+        let mut db_handle = db::spawn(store.clone(), config.clone(), db_shutdown_rx)?;
         let ipc_handle = ipc::spawn(store.clone(), config.socket_path.clone(), tx.clone(), config.clone());
 
-        tokio::select! {
+        let mut db_finished = false;
+        let exit_reason = tokio::select! {
             r = ds_handle => {
                 tracing::error!(?r, "downsample task exited");
+                "downsample"
             }
             r = fan_handle => {
                 tracing::error!(?r, "fan task exited");
+                "fan"
             }
-            r = db_handle => {
+            r = &mut db_handle => {
+                db_finished = true;
                 tracing::error!(?r, "db task exited");
+                "db"
             }
             r = ipc_handle => {
                 tracing::error!(?r, "ipc task exited");
+                "ipc"
             }
             () = shutdown.notified() => {
                 tracing::info!("shutdown signal received, stopping tasks");
+                "shutdown"
             }
         };
 
+        if !db_finished {
+            let _ = db_shutdown_tx.send(true);
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(10),
+                &mut db_handle,
+            )
+            .await
+            {
+                Ok(Ok(Ok(()))) => tracing::info!("final telemetry flush complete"),
+                Ok(Ok(Err(err))) => tracing::error!(?err, "final telemetry flush failed"),
+                Ok(Err(err)) => tracing::error!(?err, "db task failed during shutdown"),
+                Err(_) => tracing::error!("timed out waiting for final telemetry flush"),
+            }
+        }
+
+        tracing::info!(reason = exit_reason, "sb-daemon stopping");
         Ok::<_, anyhow::Error>(())
     })
 }
