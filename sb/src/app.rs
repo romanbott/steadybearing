@@ -38,6 +38,15 @@ fn clamp_caret(caret_col: usize, chart_w: usize) -> usize {
     caret_col.max(margin).min(upper)
 }
 
+/// Restores the terminal on every exit path, including early `?` returns.
+struct TerminalRestore;
+
+impl Drop for TerminalRestore {
+    fn drop(&mut self) {
+        ratatui::restore();
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TimeFrame {
     Live,
@@ -96,6 +105,7 @@ impl TuiApp {
 
     pub async fn run(mut self) -> anyhow::Result<()> {
         let mut terminal = ratatui::init();
+        let _restore = TerminalRestore;
         terminal.clear()?;
 
         let mut framed = match crate::client::connect(&self.socket_path).await {
@@ -202,7 +212,6 @@ impl TuiApp {
             }
         }
 
-        ratatui::restore();
         Ok(())
     }
 
@@ -532,7 +541,6 @@ impl TuiApp {
             f.render_widget(text, f.area());
         })?;
         crossterm::event::read()?;
-        ratatui::restore();
         Ok(())
     }
 }
