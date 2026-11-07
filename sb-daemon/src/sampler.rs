@@ -71,13 +71,33 @@ impl Sampler {
     fn read_fan_rpm(&self) -> Result<u16> {
         let raw = std::fs::read_to_string(&self.hwmon.fan_input_path)
             .with_context(|| format!("reading {}", self.hwmon.fan_input_path.display()))?;
-        Ok(raw.trim().parse().unwrap_or(0))
+        match raw.trim().parse() {
+            Ok(rpm) => Ok(rpm),
+            Err(err) => {
+                tracing::debug!(
+                    ?err,
+                    path = %self.hwmon.fan_input_path.display(),
+                    "malformed fan rpm"
+                );
+                Ok(0)
+            }
+        }
     }
 
     fn read_current_pwm(&self) -> Result<u8> {
         let raw = std::fs::read_to_string(&self.hwmon.pwm_path)
             .with_context(|| format!("reading {}", self.hwmon.pwm_path.display()))?;
-        Ok(raw.trim().parse().unwrap_or(0))
+        match raw.trim().parse() {
+            Ok(pwm) => Ok(pwm),
+            Err(err) => {
+                tracing::debug!(
+                    ?err,
+                    path = %self.hwmon.pwm_path.display(),
+                    "malformed pwm value"
+                );
+                Ok(0)
+            }
+        }
     }
 }
 

@@ -9,6 +9,10 @@ use crate::sampler::Sampler;
 use crate::store::TelemetryStore;
 use sb_protocol::types::MetricSample;
 
+/// Consecutive failed samples tolerated before giving up and restoring
+/// automatic fan control.
+const MAX_SENSOR_ERRORS: u32 = 5;
+
 enum FanState {
     Stable,
     Cooling { ticks: u64 },
@@ -32,12 +36,29 @@ pub fn spawn(
         let mut tick_count: u64 = 0;
         let mut current_pwm: u8 = config.pwm_baseline;
         let mut state = FanState::Stable;
+        let mut sensor_errors: u32 = 0;
 
         loop {
             ticker.tick().await;
             tick_count += 1;
 
-            let sample = sampler.sample().context("sampling metrics")?;
+            let sample = match sampler.sample() {
+                Ok(sample) => sample,
+                Err(err) => {
+                    sensor_errors += 1;
+                    tracing::warn!(
+                        ?err,
+                        consecutive = sensor_errors,
+                        "sensor read failed"
+                    );
+                    if sensor_errors >= MAX_SENSOR_ERRORS {
+                        return Err(err
+                            .context("too many consecutive sensor read failures"));
+                    }
+                    continue;
+                }
+            };
+            sensor_errors = 0;
             store.tier1.push(sample);
             let _ = tx.send(sample);
 
