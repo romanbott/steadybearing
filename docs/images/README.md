@@ -2,7 +2,7 @@
 
 | File | Purpose |
 |---|---|
-| `sb-history.gif` | README hero; 10 s / 1 m / 10 m / 1 h views from a real ME Mini history DB |
+| `sb-history.gif` | README hero; 10 s / 1 m / 10 m / 1 h views from a real ME Mini history DB, ending with a scroll to a 100% fan spike |
 | `sb-history.png` | Static fallback; the 1 m history view |
 
 The history views are real data from a Beelink ME Mini. The live view is not
@@ -48,13 +48,16 @@ browser needs.
 export SB_DEMO_DB=/path/to/history.db
 vhs dev/demo.tape
 
-# optional: shrink the GIF further
-gifsicle -O3 --lossy=80 docs/images/sb-history.gif \
+# shrink the GIF further
+gifsicle -O3 --lossy=80 --colors 128 docs/images/sb-history.gif \
   -o docs/images/sb-history.gif
 ```
 
 The tape hides the build and harness setup, then records the 10 s, 1 m, 10 m
-and 1 h history views. It takes a PNG screenshot at the 1 m view.
+and 1 h history views. In the 1 h view it scrolls back to the 2026-10-07
+14:00 bucket, where PWM jumps from 130 to 255 and the fan reaches ~2966 RPM.
+It takes a PNG screenshot at the 1 m view and hides the TUI exit so no shell
+text appears at the end.
 
 The harness copies the DB to a temporary directory and sets a long
 `db_flush_secs` so the demo does not append simulated rows to the source DB.

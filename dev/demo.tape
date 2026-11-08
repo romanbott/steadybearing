@@ -10,7 +10,7 @@ Set Margin 24
 Set MarginFill "#1e1e2e"
 Set BorderRadius 10
 Set Theme "Catppuccin Mocha"
-Set Framerate 20
+Set Framerate 15
 Set TypingSpeed 40ms
 Set CursorBlink false
 
@@ -39,6 +39,11 @@ Sleep 1s
 Type "t"
 Sleep 3s
 Type "t"
+Sleep 2s
+# Scroll back to the Oct 7 14:00 bucket where PWM jumps 130 -> 255 and the
+# fan reaches ~2966 RPM. 123 rapid presses move 721 hourly rows.
+Left@25ms 123
 Sleep 3s
+Hide
 Type "q"
 Sleep 1s
