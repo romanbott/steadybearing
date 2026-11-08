@@ -501,6 +501,7 @@ impl TuiApp {
         f.render_widget(Line::from(footer), chunks[3]);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_metric_pane(
         &self,
         f: &mut Frame,
@@ -639,7 +640,7 @@ impl TuiApp {
             .iter()
             .skip(start)
             .take(count)
-            .map(|s| extract(s));
+            .map(extract);
         match self.mode {
             DisplayMode::MA => {
                 let sum: f32 = iter.sum();

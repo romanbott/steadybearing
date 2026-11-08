@@ -85,6 +85,7 @@ pub fn paint_bars(
 /// Pixel-buffer painter with grid (live mode).
 /// `timestamps` are the epoch-second timestamps of the original source
 /// samples, indexed in the same order as the values that produced `buckets`.
+#[allow(clippy::needless_range_loop)]
 pub fn paint_bars_grid(
     buckets:     &[f32],
     range_min:   f32,

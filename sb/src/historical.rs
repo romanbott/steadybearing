@@ -114,6 +114,7 @@ pub fn historical_col(mode: DisplayMode, row: &HistoricalRow, kind: MetricKind) 
 
 // ── rendering ────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 pub fn render_pane(
     f: &mut Frame,
     area: Rect,
