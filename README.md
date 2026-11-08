@@ -20,6 +20,8 @@ See [hardware](docs/hardware.md) and [it87 driver](docs/it87.md) for the
 ME Mini setup. Fan control is inherently risky — read the safety notes before
 running it on a new machine.
 
+![SteadyBearing TUI history view](docs/images/sb-history.gif)
+
 ## Features
 
 - 1 Hz sampling of package temperature, CPU usage, fan RPM and PWM.
@@ -59,6 +61,9 @@ The CPU fan is `fan2_input`, controlled by `pwm2`. See
   - an `it87`-class device providing `pwm2` and `pwm2_enable`.
 - On the ME Mini, the out-of-tree `it87` driver — see
   [docs/it87.md](docs/it87.md).
+- On Debian, install the `linux-headers-amd64` meta-package so DKMS can rebuild
+  `it87` automatically after every kernel update. See
+  [docs/it87.md](docs/it87.md#kernel-updates-and-headers).
 - Debian 13+, or Debian 12+ using a release built on bookworm. Releases are
   built against bookworm (glibc 2.36) wherever possible.
 
@@ -99,8 +104,9 @@ dmesg | grep -i it87     # Found IT8613E chip at 0xa30, revision 12
 sensors                  # it8613-isa-* with fan2 / pwm2
 ```
 
-Full instructions, module options, Secure Boot notes and removal steps are in
-[docs/it87.md](docs/it87.md).
+Install `linux-headers-amd64` (the meta-package) so the DKMS module is rebuilt
+after kernel updates. Full instructions, module options, Secure Boot notes and
+removal steps are in [docs/it87.md](docs/it87.md).
 
 ## Quick start
 
@@ -121,9 +127,10 @@ Edit `/etc/sb/sb.toml`. The packaged file is a conffile and is never
 overwritten by upgrades.
 
 The most important settings are `pwm_baseline`, `fan_soft_min`,
-`fan_soft_max`, `fan_hard_max`, `fan_step`, and the history retention under
-`[retention]`. See [docs/configuration.md](docs/configuration.md) for every
-field and the fan curve.
+`fan_soft_max`, `fan_hard_max`, `fan_hard_exit_temp`, `fan_step`, and the
+history retention under `[retention]`. See
+[docs/configuration.md](docs/configuration.md) for every field, the tuning
+goals and example profiles.
 
 ## TUI keys
 

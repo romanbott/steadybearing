@@ -13,7 +13,7 @@ ifeq ($(strip $(VERSION)),)
 $(error could not determine VERSION from Cargo.toml)
 endif
 
-.PHONY: all build test man changelog deb stage tarball checksums dist release install uninstall clean
+.PHONY: all build test man changelog deb stage tarball checksums dist release install uninstall clean demo
 
 all: build
 
@@ -74,6 +74,9 @@ install: stage
 
 uninstall:
 	sudo packaging/install.sh --uninstall $(INSTALL_ARGS)
+
+demo:
+	vhs dev/demo.tape
 
 clean:
 	rm -rf $(DIST)

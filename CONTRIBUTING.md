@@ -19,6 +19,19 @@ a simulated thermal plant:
 It builds the daemon with the dev-only `test-hwmon` feature. Release builds do
 not include that feature.
 
+## Demo GIF
+
+The README demo is generated with VHS from a copy of a real history DB. The DB
+is never committed; the harness copies it to a temporary directory.
+
+```sh
+export SB_DEMO_DB=/path/to/history.db
+vhs dev/demo.tape
+```
+
+Prerequisites, the LXC/root workaround (`VHS_NO_SANDBOX=1`) and the asset
+details are in [docs/images/README.md](docs/images/README.md).
+
 Packaging:
 
 ```sh

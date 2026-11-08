@@ -25,6 +25,37 @@ for h in /sys/class/hwmon/hwmon*; do echo "$h $(cat "$h/name" 2>/dev/null)"; don
 
 `sensors` should show `it8613-isa-*`, `fan2`, and `pwm2`.
 
+## it87 missing after a kernel update
+
+DKMS needs the headers for the new kernel. If `it87` or `pwm2` disappears after
+an update:
+
+```sh
+uname -r
+dkms status
+dmesg | grep -i it87
+```
+
+Install the headers meta-package so future kernel updates keep the matching
+headers:
+
+```sh
+sudo apt install linux-headers-amd64
+sudo dkms autoinstall
+sudo modprobe it87
+```
+
+Then check again:
+
+```sh
+lsmod | grep it87
+dmesg | grep -i it87
+```
+
+Installing `linux-headers-$(uname -r)` once only covers the current kernel;
+`linux-headers-amd64` is the meta-package that follows kernel updates. See
+[it87 driver](it87.md#kernel-updates-and-headers).
+
 ## `sb: cannot connect to sb-daemon`
 
 ```sh
