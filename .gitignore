@@ -12,6 +12,9 @@
 # Packaging output
 /dist/
 
+# Local diagnostics output (tools/collect-me-mini.sh)
+/me-mini-report.txt
+
 # Editor and OS noise
 .DS_Store
 .idea/
