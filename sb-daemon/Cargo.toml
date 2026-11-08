@@ -19,7 +19,7 @@ test-hwmon = []
 [dependencies]
 sb-protocol = { path = "../sb-protocol" }
 tokio = { version = "1", features = ["full"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 clap = { version = "4", features = ["derive"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 bincode = "1"
