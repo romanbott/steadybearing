@@ -131,6 +131,6 @@ if command -v systemctl >/dev/null 2>&1; then
     run_sh "systemctl status sb-daemon --no-pager 2>/dev/null | head -40"
     run_sh "journalctl -u sb-daemon -n 50 --no-pager 2>/dev/null"
 fi
-run ls -l /etc/sb/sb.toml /var/log/sb /var/lib/sb
+run ls -l /etc/sb/sb.toml /var/lib/sb
 
 printf '\nDone. No changes were made.\n'

@@ -64,15 +64,7 @@ type -a sb
 - The history database is `/var/lib/sb/history.db`. Check it exists.
 - The first flush is after `db_flush_secs` (default 60 s); the 10 m tier needs
   a complete 10-minute bucket, and the 1 h tier a complete hour.
-- If you upgraded from the old two-file layout, run the migration:
-  ```sh
-  sudo systemctl stop sb-daemon
-  sudo /usr/lib/sb/migrate-history --telemetry /var/log/sb/telemetry.db \
-      --archive /var/log/sb/archive.db --output /var/lib/sb/history.db
-  sudo systemctl start sb-daemon
-  ```
-- Check that `/etc/sb/sb.toml` does not still point `db_path` at the old
-  `/var/log/sb` path.
+- Check that `db_path` in `/etc/sb/sb.toml` points at the file you expect.
 
 ## The fan does not change speed
 

@@ -19,7 +19,6 @@ all: build
 
 build:
 	cargo build --release --locked --workspace
-	cargo build --release --locked -p sb-daemon --example migrate_history
 
 test:
 	cargo test --workspace --locked
@@ -46,7 +45,6 @@ stage: build man changelog
 	mkdir -p $(STAGE)/sysusers.d $(STAGE)/man
 	install -m755 target/release/sb-daemon $(STAGE)/sb-daemon
 	install -m755 target/release/sb $(STAGE)/sb
-	install -m755 target/release/examples/migrate_history $(STAGE)/migrate-history
 	install -m644 sb-daemon.service $(STAGE)/sb-daemon.service
 	install -m644 sb.toml $(STAGE)/sb.toml
 	install -m644 README.md $(STAGE)/README.md

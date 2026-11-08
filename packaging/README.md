@@ -29,11 +29,9 @@ dist/SHA256SUMS
 ```
 
 Both artifacts contain `sb-daemon`, `sb`, the systemd unit, the default
-`sb.toml`, the sysusers file, man pages, a changelog/copyright file, and the
-one-off `migrate-history` helper (`/usr/lib/sb/migrate-history` in the
-package, `PREFIX/lib/sb/migrate-history` for the tarball). The package
-installs the unit under `/usr/lib/systemd/system`; the tarball installer uses
-`/etc/systemd/system`.
+`sb.toml`, the sysusers file, man pages, and a changelog/copyright file. The
+package installs the unit under `/usr/lib/systemd/system`; the tarball
+installer uses `/etc/systemd/system`.
 
 The project is licensed under GPL-3.0-or-later; see `../LICENSE`. The Debian
 `copyright` file points at `/usr/share/common-licenses/GPL-3`, and `nfpm.yaml`
@@ -60,8 +58,8 @@ sudo ./sb-<version>-x86_64-linux/install.sh
 
 The script defaults to `/usr/local`, patches the unit's `ExecStart`, installs
 the config only if it does not exist, creates the `sb` group, and enables the
-service. Useful options: `--prefix`, `--bindir`, `--libdir`, `--no-start`,
-`--uninstall`, `--purge`.
+service. Useful options: `--prefix`, `--bindir`, `--no-start`, `--uninstall`,
+`--purge`.
 
 ## Notes
 

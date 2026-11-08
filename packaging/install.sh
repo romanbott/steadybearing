@@ -11,7 +11,6 @@ set -euo pipefail
 
 PREFIX=/usr/local
 BINDIR=""
-LIBDIR=""
 MANDIR=""
 DOCDIR=""
 UNIT_DIR=/etc/systemd/system
@@ -28,7 +27,6 @@ usage: install.sh [options]
 
   --prefix DIR       installation prefix (default /usr/local)
   --bindir DIR       binary directory (default PREFIX/bin)
-  --libdir DIR       helper binary directory (default PREFIX/lib/sb)
   --mandir DIR       man page directory (default PREFIX/share/man/man1)
   --docdir DIR       documentation directory (default PREFIX/share/doc/sb)
   --unit-dir DIR     systemd unit directory (default /etc/systemd/system)
@@ -48,10 +46,6 @@ while [ $# -gt 0 ]; do
             ;;
         --bindir)
             BINDIR=${2:?--bindir needs a value}
-            shift 2
-            ;;
-        --libdir)
-            LIBDIR=${2:?--libdir needs a value}
             shift 2
             ;;
         --mandir)
@@ -97,9 +91,6 @@ done
 if [ -z "$BINDIR" ]; then
     BINDIR="$PREFIX/bin"
 fi
-if [ -z "$LIBDIR" ]; then
-    LIBDIR="$PREFIX/lib/sb"
-fi
 if [ -z "$MANDIR" ]; then
     MANDIR="$PREFIX/share/man/man1"
 fi
@@ -124,8 +115,6 @@ if [ "$UNINSTALL" = 1 ]; then
         systemctl unmask sb-daemon.service >/dev/null 2>&1 || true
     fi
     rm -f "$BINDIR/sb-daemon" "$BINDIR/sb" "$UNIT_DIR/sb-daemon.service"
-    rm -f "$LIBDIR/migrate-history"
-    rmdir "$LIBDIR" 2>/dev/null || true
     rm -f "$SYSUSERS_DIR/sb.conf"
     rm -f "$MANDIR/sb.1.gz" "$MANDIR/sb-daemon.1.gz"
     rm -f "$DOCDIR/README.md" "$DOCDIR/LICENSE" "$DOCDIR/copyright" "$DOCDIR/changelog.gz"
@@ -152,9 +141,6 @@ done
 
 install -Dm755 "$src/sb-daemon" "$BINDIR/sb-daemon"
 install -Dm755 "$src/sb" "$BINDIR/sb"
-if [ -e "$src/migrate-history" ]; then
-    install -Dm755 "$src/migrate-history" "$LIBDIR/migrate-history"
-fi
 install -Dm644 "$src/README.md" "$DOCDIR/README.md"
 if [ -e "$src/LICENSE" ]; then
     install -Dm644 "$src/LICENSE" "$DOCDIR/LICENSE"

@@ -34,8 +34,7 @@ running it on a new machine.
 - Local Unix socket (`0660`, group `sb`) with a protocol version handshake.
 - systemd unit with `StateDirectory`/`RuntimeDirectory` and conservative
   hardening.
-- Debian package and portable tarball, with a migration tool for the old
-  two-database layout.
+- Debian package and portable tarball.
 
 ## Verified hardware
 
@@ -80,7 +79,7 @@ sudo ./sb-<version>-x86_64-linux/install.sh
 ```
 
 Both install `sb-daemon`, `sb`, the systemd unit, the default configuration,
-man pages, and the one-off `migrate-history` helper.
+and man pages.
 
 Add your user to the socket group, then start a new login session:
 
@@ -143,15 +142,6 @@ For a consistent backup, stop the service and copy the file:
 ```sh
 sudo systemctl stop sb-daemon
 sudo cp /var/lib/sb/history.db /var/backups/history-$(date +%F).db
-sudo systemctl start sb-daemon
-```
-
-Upgrading from the old `/var/log/sb/telemetry.db` + `archive.db` layout:
-
-```sh
-sudo systemctl stop sb-daemon
-sudo /usr/lib/sb/migrate-history --telemetry /var/log/sb/telemetry.db \
-    --archive /var/log/sb/archive.db --output /var/lib/sb/history.db
 sudo systemctl start sb-daemon
 ```
 

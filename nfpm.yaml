@@ -30,10 +30,6 @@ contents:
     dst: /usr/bin/sb
     file_info:
       mode: 0755
-  - src: target/release/examples/migrate_history
-    dst: /usr/lib/sb/migrate-history
-    file_info:
-      mode: 0755
   - src: sb-daemon.service
     dst: /usr/lib/systemd/system/sb-daemon.service
     file_info:
