@@ -1,8 +1,11 @@
-# SteadyBearing
+<p align="center"><img src="assets/logo-mark.svg" width="96" alt="SteadyBearing logo"></p>
+<h1 align="center">SteadyBearing</h1>
 
-[![CI](https://github.com/romanbott/steadybearing/actions/workflows/ci.yml/badge.svg)](https://github.com/romanbott/steadybearing/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/romanbott/steadybearing)](https://github.com/romanbott/steadybearing/releases)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/romanbott/steadybearing/actions/workflows/ci.yml"><img src="https://github.com/romanbott/steadybearing/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/romanbott/steadybearing/releases"><img src="https://img.shields.io/github/v/release/romanbott/steadybearing" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0-or-later"></a>
+</p>
 
 A small fan-control daemon and terminal dashboard for Linux machines whose
 embedded controller exposes a fan through `hwmon` (`pwm2`). It was written for
@@ -20,7 +23,7 @@ See [hardware](docs/hardware.md) and [it87 driver](docs/it87.md) for the
 ME Mini setup. Fan control is inherently risky — read the safety notes before
 running it on a new machine.
 
-![SteadyBearing TUI history view](docs/images/sb-history.gif)
+<p align="center"><img src="docs/images/sb-history.gif" alt="SteadyBearing TUI history view" width="760"></p>
 
 ## Features
 

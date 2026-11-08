@@ -63,6 +63,10 @@ contents:
     dst: /usr/share/doc/sb/README.md
     file_info:
       mode: 0644
+  - src: assets/logo-mark.svg
+    dst: /usr/share/doc/sb/assets/logo-mark.svg
+    file_info:
+      mode: 0644
 scripts:
   preinstall: packaging/scripts/preinstall.sh
   postinstall: packaging/scripts/postinstall.sh

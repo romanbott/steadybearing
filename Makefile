@@ -42,12 +42,13 @@ deb: build man changelog
 
 stage: build man changelog
 	rm -rf $(STAGE)
-	mkdir -p $(STAGE)/sysusers.d $(STAGE)/man
+	mkdir -p $(STAGE)/sysusers.d $(STAGE)/man $(STAGE)/assets
 	install -m755 target/release/sb-daemon $(STAGE)/sb-daemon
 	install -m755 target/release/sb $(STAGE)/sb
 	install -m644 sb-daemon.service $(STAGE)/sb-daemon.service
 	install -m644 sb.toml $(STAGE)/sb.toml
 	install -m644 README.md $(STAGE)/README.md
+	install -m644 assets/logo-mark.svg $(STAGE)/assets/logo-mark.svg
 	install -m644 LICENSE $(STAGE)/LICENSE
 	install -m644 packaging/copyright $(STAGE)/copyright
 	install -m644 $(CHANGELOG) $(STAGE)/changelog.gz
