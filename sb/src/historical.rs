@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Roman Contreras
+
 use chrono::{Local, TimeZone};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};

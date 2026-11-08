@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Roman Contreras
+
 use anyhow::bail;
 use futures::{SinkExt, StreamExt};
 use sb_protocol::types::{

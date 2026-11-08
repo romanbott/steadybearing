@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Roman Contreras
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reducer {
     Max,

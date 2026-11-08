@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Roman Contreras
+
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 

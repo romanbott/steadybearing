@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Roman Contreras
+
 //! One-off migration from the old two-file history layout to the unified
 //! `history.db` schema.
 //!
