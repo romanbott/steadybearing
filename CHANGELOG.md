@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- The one-off `migrate-history` helper for the pre-release two-database
+  layout, along with the installer's `--libdir` option.
+
+### Fixed
+
+- Man pages and `--help` now document `--check`, `--version`,
+  `--config-file` and `-v`.
+
 ## [0.1.0] - 2026-11-07
 
 ### Added
@@ -19,4 +31,5 @@ follows [Semantic Versioning](https://semver.org/).
 - Fake-sysfs harness and a read-only ME Mini diagnostics collector.
 - Me Mini / IT8613E hardware and it87 driver documentation.
 
+[Unreleased]: https://github.com/romanbott/steadybearing/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/romanbott/steadybearing/releases/tag/v0.1.0
