@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a crash, incorrect behavior or a fan-control problem
+title: '[bug] '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please attach the read-only diagnostics output
+        when possible, after checking it for personal data:
+        `sudo bash tools/collect-me-mini.sh > /tmp/me-mini-report.txt 2>&1`
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include the exact command and the error or behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Release version
+      placeholder: 0.1.0
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Machine model, BIOS, Debian version, kernel, it87 driver version.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: journalctl -u sb-daemon, sb-daemon --check, dmesg excerpts.
+      render: shell
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics report
+      description: Paste or attach /tmp/me-mini-report.txt. Remove anything you do not want public.
+      render: text

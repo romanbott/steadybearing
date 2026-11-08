@@ -1,0 +1,59 @@
+name: Hardware report
+description: Report a machine where the driver or fan mapping differs
+title: '[hardware] '
+labels: [hardware]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Hardware reports help validate the channel mapping on boards other than
+        the Beelink ME Mini. Please include the read-only collector output:
+        `sudo bash tools/collect-me-mini.sh > /tmp/me-mini-report.txt 2>&1`
+
+  - type: input
+    id: model
+    attributes:
+      label: Machine model and BIOS
+      placeholder: Beelink ME Mini, BIOS N5X12002
+    validations:
+      required: true
+
+  - type: input
+    id: chip
+    attributes:
+      label: IT87 / Super I/O chip
+      placeholder: IT8613E, revision 12
+
+  - type: input
+    id: driver
+    attributes:
+      label: it87 driver version
+      description: From `dkms status` and `modinfo it87`.
+      placeholder: 20f2f2f.20260416
+
+  - type: input
+    id: kernel
+    attributes:
+      label: Kernel and distribution
+      placeholder: Debian 13, 6.12.115+deb13.1-amd64
+
+  - type: textarea
+    id: mapping
+    attributes:
+      label: Fan / PWM mapping
+      description: Which hwmon name and fan/pwm pair controls which fan? Include the `sensors` output.
+      render: text
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: it87 options and notes
+      description: Module parameters, Secure Boot, ACPI workarounds, BIOS fan mode.
+      render: text
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics report
+      description: Paste or attach /tmp/me-mini-report.txt. Remove anything you do not want public.
+      render: text
