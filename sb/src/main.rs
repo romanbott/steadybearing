@@ -22,6 +22,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 #[derive(Parser)]
+#[command(name = "sb", version, about = "SteadyBearing terminal dashboard")]
 pub struct Args {
     #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_SOCKET_PATH))]
     pub socket_path: String,

@@ -478,6 +478,7 @@ mod tests {
             fan_drift_temp: 50.0,
             fan_drift_secs: 30.0,
             verbose: false,
+            check: false,
         }
     }
 

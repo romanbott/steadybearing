@@ -72,7 +72,7 @@ pub fn spawn(
                 .await
                 .with_context(|| format!("writing pwm to {}", hwmon.pwm_path.display()))?;
 
-            if verbose && tick_count % 5 == 0 {
+            if verbose && tick_count.is_multiple_of(5) {
                 tracing::info!(
                     temp = sample.cpu_temp,
                     ma_temp = ma_temp,
@@ -228,6 +228,7 @@ mod tests {
             fan_drift_temp: 50.0,
             fan_drift_secs: 30.0,
             verbose: false,
+            check: false,
         }
     }
 

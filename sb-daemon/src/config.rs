@@ -5,19 +5,29 @@ use clap::Parser;
 use serde::Deserialize;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "sb-daemon")]
+#[command(
+    name = "sb-daemon",
+    version,
+    about = "SteadyBearing fan control daemon"
+)]
 pub struct Args {
-    #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_SOCKET_PATH))]
-    pub socket_path: String,
+    #[arg(long, help = "Unix socket path (default: /run/sb/sb.sock)")]
+    pub socket_path: Option<String>,
 
-    #[arg(long, default_value_t = String::from(sb_protocol::types::DEFAULT_DB_PATH))]
-    pub db_path: String,
+    #[arg(long, help = "History database path (default: /var/lib/sb/history.db)")]
+    pub db_path: Option<String>,
 
     #[arg(long)]
     pub config_file: Option<String>,
 
     #[arg(short, long, default_value = "false")]
     pub verbose: bool,
+
+    #[arg(
+        long,
+        help = "Discover hwmon paths and values, then exit without touching the fan"
+    )]
+    pub check: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,6 +166,7 @@ pub struct Config {
     pub fan_drift_temp: f32,
     pub fan_drift_secs: f32,
     pub verbose: bool,
+    pub check: bool,
 }
 
 impl Config {
@@ -173,15 +184,15 @@ impl Config {
         };
 
         let config = Config {
-            socket_path: config_file
-                .as_ref()
-                .map(|c| c.socket_path.clone())
-                .unwrap_or(args.socket_path),
+            socket_path: args
+                .socket_path
+                .or_else(|| config_file.as_ref().map(|c| c.socket_path.clone()))
+                .unwrap_or_else(default_socket_path),
             socket_gid: config_file.as_ref().and_then(|c| c.socket_gid),
-            db_path: config_file
-                .as_ref()
-                .map(|c| c.db_path.clone())
-                .unwrap_or(args.db_path),
+            db_path: args
+                .db_path
+                .or_else(|| config_file.as_ref().map(|c| c.db_path.clone()))
+                .unwrap_or_else(default_db_path),
             db_flush_secs: config_file
                 .as_ref()
                 .map(|c| c.db_flush_secs)
@@ -227,6 +238,7 @@ impl Config {
                 .map(|c| c.fan_drift_secs)
                 .unwrap_or(default_fan_drift_secs()),
             verbose: args.verbose,
+            check: args.check,
         };
 
         config.validate()?;
@@ -309,6 +321,7 @@ mod tests {
             fan_drift_temp: 50.0,
             fan_drift_secs: 30.0,
             verbose: false,
+            check: false,
         }
     }
 

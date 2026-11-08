@@ -26,13 +26,29 @@ fn main() -> Result<()> {
     let config = config::Config::load()?;
     tracing::info!(socket = %config.socket_path, "sb-daemon starting");
 
-    let hwmon = hwmon::HwmonLocator::discover()?;
+    let hwmon = match hwmon::HwmonLocator::discover() {
+        Ok(hwmon) => hwmon,
+        Err(err) => {
+            if config.check {
+                eprintln!("sb-daemon --check failed: {err}");
+                eprintln!(
+                    "Hint: check the it87 driver (docs/it87.md) and run tools/collect-me-mini.sh."
+                );
+            }
+            return Err(err);
+        }
+    };
     tracing::info!(
         coretemp = ?hwmon.coretemp_path,
         pwm = ?hwmon.pwm_path,
         fan = ?hwmon.fan_input_path,
         "hwmon paths discovered"
     );
+
+    if config.check {
+        print_hwmon_check(&hwmon);
+        return Ok(());
+    }
 
     let prev_enable = std::fs::read_to_string(&hwmon.pwm_enable_path)
         .unwrap_or_else(|_| "unknown".into())
@@ -114,4 +130,35 @@ fn main() -> Result<()> {
             Err(anyhow::anyhow!("{exit_reason} task exited unexpectedly"))
         }
     })
+}
+
+fn print_hwmon_check(hwmon: &hwmon::HwmonLocator) {
+    println!("coretemp:   {}", hwmon.coretemp_path.display());
+    println!("pwm:        {}", hwmon.pwm_path.display());
+    println!("pwm_enable: {}", hwmon.pwm_enable_path.display());
+    println!("fan:        {}", hwmon.fan_input_path.display());
+    println!();
+
+    for (label, path) in [
+        ("cpu_temp", &hwmon.coretemp_path),
+        ("pwm", &hwmon.pwm_path),
+        ("pwm_enable", &hwmon.pwm_enable_path),
+        ("fan", &hwmon.fan_input_path),
+    ] {
+        let value = std::fs::read_to_string(path)
+            .map(|value| value.trim().to_string())
+            .unwrap_or_else(|err| format!("<{err}>"));
+        println!("{label:>10}: {value}");
+    }
+
+    let writable = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&hwmon.pwm_path)
+        .is_ok();
+    println!(
+        "pwm writable: {}",
+        if writable { "yes" } else { "no (run as root?)" }
+    );
+    println!();
+    println!("No changes were made.");
 }
