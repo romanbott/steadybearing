@@ -127,7 +127,7 @@ if [ "$UNINSTALL" = 1 ]; then
     rmdir "$LIBDIR" 2>/dev/null || true
     rm -f "$SYSUSERS_DIR/sb.conf"
     rm -f "$MANDIR/sb.1.gz" "$MANDIR/sb-daemon.1.gz"
-    rm -f "$DOCDIR/README.md" "$DOCDIR/copyright" "$DOCDIR/changelog.Debian.gz"
+    rm -f "$DOCDIR/README.md" "$DOCDIR/copyright" "$DOCDIR/changelog.gz"
     rmdir "$DOCDIR" 2>/dev/null || true
     if [ "$have_systemd" = 1 ]; then
         systemctl daemon-reload >/dev/null 2>&1 || true
@@ -158,8 +158,8 @@ install -Dm644 "$src/README.md" "$DOCDIR/README.md"
 if [ -e "$src/copyright" ]; then
     install -Dm644 "$src/copyright" "$DOCDIR/copyright"
 fi
-if [ -e "$src/changelog.Debian.gz" ]; then
-    install -Dm644 "$src/changelog.Debian.gz" "$DOCDIR/changelog.Debian.gz"
+if [ -e "$src/changelog.gz" ]; then
+    install -Dm644 "$src/changelog.gz" "$DOCDIR/changelog.gz"
 fi
 if [ -e "$src/man/sb.1.gz" ]; then
     install -Dm644 "$src/man/sb.1.gz" "$MANDIR/sb.1.gz"

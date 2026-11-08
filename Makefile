@@ -6,7 +6,7 @@ TAR_ARCH ?= x86_64
 DIST := dist
 STAGE := $(DIST)/sb-$(VERSION)-$(TAR_ARCH)-linux
 MAN := $(DIST)/man
-CHANGELOG := $(DIST)/changelog.Debian.gz
+CHANGELOG := $(DIST)/changelog.gz
 NFPM ?= nfpm
 
 ifeq ($(strip $(VERSION)),)
@@ -31,7 +31,7 @@ man:
 
 changelog:
 	mkdir -p $(DIST)
-	gzip -9 -n -c packaging/changelog.Debian > $(CHANGELOG)
+	gzip -9 -n -c packaging/changelog > $(CHANGELOG)
 
 deb: build man changelog
 	@command -v $(NFPM) >/dev/null 2>&1 || { \
@@ -51,7 +51,7 @@ stage: build man changelog
 	install -m644 sb.toml $(STAGE)/sb.toml
 	install -m644 README.md $(STAGE)/README.md
 	install -m644 packaging/copyright $(STAGE)/copyright
-	install -m644 $(CHANGELOG) $(STAGE)/changelog.Debian.gz
+	install -m644 $(CHANGELOG) $(STAGE)/changelog.gz
 	install -m644 $(MAN)/sb.1.gz $(STAGE)/man/sb.1.gz
 	install -m644 $(MAN)/sb-daemon.1.gz $(STAGE)/man/sb-daemon.1.gz
 	install -m755 packaging/install.sh $(STAGE)/install.sh
