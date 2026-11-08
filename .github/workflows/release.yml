@@ -18,7 +18,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends git ca-certificates
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install packaging tools
         run: |
@@ -36,7 +36,7 @@ jobs:
         run: lintian dist/sb_*.deb
 
       - name: Publish the GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/sb_*.deb
