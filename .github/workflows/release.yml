@@ -13,6 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     container: rust:1-bookworm
     steps:
+      - name: Install git for checkout
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
       - uses: actions/checkout@v4
 
       - name: Install packaging tools
@@ -25,9 +30,7 @@ jobs:
           tar -xzf /tmp/nfpm.tar.gz -C /usr/local/bin nfpm
 
       - name: Build release artifacts
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}" \
-            make VERSION="${GITHUB_REF_NAME#v}" NFPM=/usr/local/bin/nfpm dist
+        run: make VERSION="${GITHUB_REF_NAME#v}" NFPM=/usr/local/bin/nfpm dist
 
       - name: Lint the Debian package
         run: lintian dist/sb_*.deb

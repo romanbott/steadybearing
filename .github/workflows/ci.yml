@@ -30,6 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     container: rust:1-bookworm
     steps:
+      - name: Install git for checkout
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
       - uses: actions/checkout@v4
 
       - name: Install packaging tools
