@@ -1,0 +1,47 @@
+.TH SB\-DAEMON 1 "2026-11-07" "sb-daemon" "System Administration"
+.SH NAME
+sb\-daemon \- SteadyBearing fan control daemon
+.SH SYNOPSIS
+.B sb\-daemon
+[\fB\-\-socket\-path\fR \fIPATH\fR]
+[\fB\-\-db\-path\fR \fIPATH\fR]
+[\fB\-\-config\-file\fR \fIPATH\fR]
+[\fB\-v\fR]
+.SH DESCRIPTION
+.B sb\-daemon
+samples CPU temperature, CPU usage, fan RPM and PWM from
+.IR /sys/class/hwmon ,
+runs a hysteresis fan curve, and stores tiered telemetry history in SQLite.
+It restores automatic fan control on SIGTERM or shutdown.
+.SH OPTIONS
+.TP
+.B \-\-socket\-path \fIPATH\fR
+Unix socket to listen on. Defaults to
+.IR /run/sb/sb.sock .
+.TP
+.B \-\-db\-path \fIPATH\fR
+History database. Defaults to
+.IR /var/lib/sb/history.db .
+.TP
+.B \-\-config\-file \fIPATH\fR
+TOML configuration file. Without this option the daemon looks for
+.I /etc/sb/sb.toml
+and then
+.I sb.toml
+in the current directory.
+.TP
+.B \-v, \-\-verbose
+Log a heartbeat every five seconds.
+.SH FILES
+.TP
+.I /etc/sb/sb.toml
+Configuration file.
+.TP
+.I /var/lib/sb/history.db
+Tiered telemetry history.
+.TP
+.I /run/sb/sb.sock
+Unix socket used by
+.BR sb (1).
+.SH SEE ALSO
+.BR sb (1)

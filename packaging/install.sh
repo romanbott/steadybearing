@@ -12,6 +12,8 @@ set -euo pipefail
 PREFIX=/usr/local
 BINDIR=""
 LIBDIR=""
+MANDIR=""
+DOCDIR=""
 UNIT_DIR=/etc/systemd/system
 CONFIG_DIR=/etc/sb
 STATE_DIR=/var/lib/sb
@@ -27,6 +29,8 @@ usage: install.sh [options]
   --prefix DIR       installation prefix (default /usr/local)
   --bindir DIR       binary directory (default PREFIX/bin)
   --libdir DIR       helper binary directory (default PREFIX/lib/sb)
+  --mandir DIR       man page directory (default PREFIX/share/man/man1)
+  --docdir DIR       documentation directory (default PREFIX/share/doc/sb)
   --unit-dir DIR     systemd unit directory (default /etc/systemd/system)
   --config-dir DIR   configuration directory (default /etc/sb)
   --no-start         install but do not start/restart the service
@@ -48,6 +52,14 @@ while [ $# -gt 0 ]; do
             ;;
         --libdir)
             LIBDIR=${2:?--libdir needs a value}
+            shift 2
+            ;;
+        --mandir)
+            MANDIR=${2:?--mandir needs a value}
+            shift 2
+            ;;
+        --docdir)
+            DOCDIR=${2:?--docdir needs a value}
             shift 2
             ;;
         --unit-dir)
@@ -88,6 +100,12 @@ fi
 if [ -z "$LIBDIR" ]; then
     LIBDIR="$PREFIX/lib/sb"
 fi
+if [ -z "$MANDIR" ]; then
+    MANDIR="$PREFIX/share/man/man1"
+fi
+if [ -z "$DOCDIR" ]; then
+    DOCDIR="$PREFIX/share/doc/sb"
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "run as root, for example: sudo $0 $*" >&2
@@ -108,6 +126,9 @@ if [ "$UNINSTALL" = 1 ]; then
     rm -f "$LIBDIR/migrate-history"
     rmdir "$LIBDIR" 2>/dev/null || true
     rm -f "$SYSUSERS_DIR/sb.conf"
+    rm -f "$MANDIR/sb.1.gz" "$MANDIR/sb-daemon.1.gz"
+    rm -f "$DOCDIR/README.md" "$DOCDIR/copyright" "$DOCDIR/changelog.Debian.gz"
+    rmdir "$DOCDIR" 2>/dev/null || true
     if [ "$have_systemd" = 1 ]; then
         systemctl daemon-reload >/dev/null 2>&1 || true
     fi
@@ -121,7 +142,7 @@ if [ "$UNINSTALL" = 1 ]; then
     exit 0
 fi
 
-for file in sb-daemon sb sb-daemon.service sb.toml; do
+for file in sb-daemon sb sb-daemon.service sb.toml README.md; do
     if [ ! -e "$src/$file" ]; then
         echo "missing $src/$file; run this from an extracted release tarball" >&2
         exit 1
@@ -132,6 +153,19 @@ install -Dm755 "$src/sb-daemon" "$BINDIR/sb-daemon"
 install -Dm755 "$src/sb" "$BINDIR/sb"
 if [ -e "$src/migrate-history" ]; then
     install -Dm755 "$src/migrate-history" "$LIBDIR/migrate-history"
+fi
+install -Dm644 "$src/README.md" "$DOCDIR/README.md"
+if [ -e "$src/copyright" ]; then
+    install -Dm644 "$src/copyright" "$DOCDIR/copyright"
+fi
+if [ -e "$src/changelog.Debian.gz" ]; then
+    install -Dm644 "$src/changelog.Debian.gz" "$DOCDIR/changelog.Debian.gz"
+fi
+if [ -e "$src/man/sb.1.gz" ]; then
+    install -Dm644 "$src/man/sb.1.gz" "$MANDIR/sb.1.gz"
+fi
+if [ -e "$src/man/sb-daemon.1.gz" ]; then
+    install -Dm644 "$src/man/sb-daemon.1.gz" "$MANDIR/sb-daemon.1.gz"
 fi
 
 if ! getent group sb >/dev/null 2>&1; then
@@ -150,7 +184,8 @@ else
 fi
 
 install -d "$UNIT_DIR"
-sed "s|^ExecStart=.*|ExecStart=$BINDIR/sb-daemon -v|" \
+sed -e "s|^ExecStart=.*|ExecStart=$BINDIR/sb-daemon -v|" \
+    -e "s|^Documentation=.*|Documentation=file:$DOCDIR/README.md|" \
     "$src/sb-daemon.service" > "$UNIT_DIR/sb-daemon.service"
 chmod 0644 "$UNIT_DIR/sb-daemon.service"
 

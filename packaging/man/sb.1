@@ -1,0 +1,35 @@
+.TH SB 1 "2026-11-07" "sb" "User Commands"
+.SH NAME
+sb \- SteadyBearing terminal dashboard
+.SH SYNOPSIS
+.B sb
+[\fB\-\-socket\-path\fR \fIPATH\fR]
+.SH DESCRIPTION
+.B sb
+connects to a running
+.BR sb-daemon (1)
+and shows live CPU usage, CPU temperature and fan speed, together with
+tiered historical charts.
+.SH OPTIONS
+.TP
+.B \-\-socket\-path \fIPATH\fR
+Path to the sb-daemon Unix socket. Defaults to
+.IR /run/sb/sb.sock .
+.SH KEYS
+.TP
+.B q, Esc
+Quit.
+.TP
+.B t
+Cycle the time frame: live, 10 s, 1 m, 10 m, 1 h.
+.TP
+.B m
+Cycle the display mode: raw, moving average, min, max.
+.TP
+.B g
+Toggle the chart grid.
+.TP
+.B Left, Right
+Move the historical selection.
+.SH SEE ALSO
+.BR sb-daemon (1)

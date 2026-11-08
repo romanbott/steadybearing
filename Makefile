@@ -5,13 +5,15 @@ ARCH ?= amd64
 TAR_ARCH ?= x86_64
 DIST := dist
 STAGE := $(DIST)/sb-$(VERSION)-$(TAR_ARCH)-linux
+MAN := $(DIST)/man
+CHANGELOG := $(DIST)/changelog.Debian.gz
 NFPM ?= nfpm
 
 ifeq ($(strip $(VERSION)),)
 $(error could not determine VERSION from Cargo.toml)
 endif
 
-.PHONY: all build test deb stage tarball checksums dist release install uninstall clean
+.PHONY: all build test man changelog deb stage tarball checksums dist release install uninstall clean
 
 all: build
 
@@ -22,7 +24,16 @@ build:
 test:
 	cargo test --workspace --locked
 
-deb: build
+man:
+	mkdir -p $(MAN)
+	gzip -9 -n -c packaging/man/sb.1 > $(MAN)/sb.1.gz
+	gzip -9 -n -c packaging/man/sb-daemon.1 > $(MAN)/sb-daemon.1.gz
+
+changelog:
+	mkdir -p $(DIST)
+	gzip -9 -n -c packaging/changelog.Debian > $(CHANGELOG)
+
+deb: build man changelog
 	@command -v $(NFPM) >/dev/null 2>&1 || { \
 		echo "nfpm not found; install it or run 'make NFPM=/path/to/nfpm deb'" >&2; \
 		exit 1; \
@@ -30,15 +41,19 @@ deb: build
 	mkdir -p $(DIST)
 	VERSION=$(VERSION) ARCH=$(ARCH) $(NFPM) package -f nfpm.yaml -p deb -t $(DIST)/
 
-stage: build
+stage: build man changelog
 	rm -rf $(STAGE)
-	mkdir -p $(STAGE)/sysusers.d
+	mkdir -p $(STAGE)/sysusers.d $(STAGE)/man
 	install -m755 target/release/sb-daemon $(STAGE)/sb-daemon
 	install -m755 target/release/sb $(STAGE)/sb
 	install -m755 target/release/examples/migrate_history $(STAGE)/migrate-history
 	install -m644 sb-daemon.service $(STAGE)/sb-daemon.service
 	install -m644 sb.toml $(STAGE)/sb.toml
 	install -m644 README.md $(STAGE)/README.md
+	install -m644 packaging/copyright $(STAGE)/copyright
+	install -m644 $(CHANGELOG) $(STAGE)/changelog.Debian.gz
+	install -m644 $(MAN)/sb.1.gz $(STAGE)/man/sb.1.gz
+	install -m644 $(MAN)/sb-daemon.1.gz $(STAGE)/man/sb-daemon.1.gz
 	install -m755 packaging/install.sh $(STAGE)/install.sh
 	install -m644 packaging/sysusers.d/sb.conf $(STAGE)/sysusers.d/sb.conf
 

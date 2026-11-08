@@ -9,10 +9,16 @@ version: ${VERSION}
 section: utils
 priority: optional
 maintainer: Roman Contreras <roman.contreras@ciencias.unam.mx>
-description: SteadyBearing fan control daemon and TUI
+description: |
+  SteadyBearing fan control daemon and TUI
+  Samples CPU temperature, CPU usage, fan RPM and PWM, applies a hysteresis
+  fan curve, and keeps tiered telemetry history in SQLite. Includes the sb
+  terminal dashboard.
 vendor: Roman Contreras
+license: all-rights-reserved
 depends:
   - systemd
+  - init-system-helpers
   - libc6
   - libgcc-s1
 contents:
@@ -29,7 +35,7 @@ contents:
     file_info:
       mode: 0755
   - src: sb-daemon.service
-    dst: /lib/systemd/system/sb-daemon.service
+    dst: /usr/lib/systemd/system/sb-daemon.service
     file_info:
       mode: 0644
   - src: sb.toml
@@ -41,6 +47,22 @@ contents:
     dst: /usr/lib/sysusers.d/sb.conf
     file_info:
       mode: 0644
+  - src: dist/man/sb.1.gz
+    dst: /usr/share/man/man1/sb.1.gz
+    file_info:
+      mode: 0644
+  - src: dist/man/sb-daemon.1.gz
+    dst: /usr/share/man/man1/sb-daemon.1.gz
+    file_info:
+      mode: 0644
+  - src: dist/changelog.Debian.gz
+    dst: /usr/share/doc/sb/changelog.Debian.gz
+    file_info:
+      mode: 0644
+  - src: packaging/copyright
+    dst: /usr/share/doc/sb/copyright
+    file_info:
+      mode: 0644
   - src: README.md
     dst: /usr/share/doc/sb/README.md
     file_info:
@@ -49,4 +71,3 @@ scripts:
   preinstall: packaging/scripts/preinstall.sh
   postinstall: packaging/scripts/postinstall.sh
   preremove: packaging/scripts/preremove.sh
-  postremove: packaging/scripts/postremove.sh
