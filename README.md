@@ -13,7 +13,9 @@ EC exposes a fan through `hwmon` (`pwm2`), such as Intel N95 mini PCs.
 
 - Linux with systemd
 - `/sys/class/hwmon` with a `coretemp` device and an EC `pwm2` channel
-- Debian 12+ (or another systemd distribution for the tarball install)
+- Debian 13+ (or another systemd distribution for the tarball install).
+  For Debian 12 (bookworm), build the release artifacts in a bookworm
+  container; see `packaging/README.md`.
 
 ## Install
 
