@@ -17,10 +17,18 @@ pub struct Args {
     #[arg(long, help = "History database path (default: /var/lib/sb/history.db)")]
     pub db_path: Option<String>,
 
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "TOML configuration file (default: /etc/sb/sb.toml, then ./sb.toml)"
+    )]
     pub config_file: Option<String>,
 
-    #[arg(short, long, default_value = "false")]
+    #[arg(
+        short,
+        long,
+        default_value = "false",
+        help = "Log a heartbeat every five seconds"
+    )]
     pub verbose: bool,
 
     #[arg(

@@ -7,6 +7,8 @@ sb\-daemon \- SteadyBearing fan control daemon
 [\fB\-\-db\-path\fR \fIPATH\fR]
 [\fB\-\-config\-file\fR \fIPATH\fR]
 [\fB\-v\fR]
+[\fB\-\-check\fR]
+[\fB\-V\fR]
 .SH DESCRIPTION
 .B sb\-daemon
 samples CPU temperature, CPU usage, fan RPM and PWM from
@@ -32,6 +34,16 @@ in the current directory.
 .TP
 .B \-v, \-\-verbose
 Log a heartbeat every five seconds.
+.TP
+.B \-\-check
+Discover the hwmon paths and print the current temperature, PWM, fan and
+mode values, then exit without changing the fan.
+.TP
+.B \-V, \-\-version
+Print the version and exit.
+.TP
+.B \-h, \-\-help
+Print usage information and exit.
 .SH FILES
 .TP
 .I /etc/sb/sb.toml
