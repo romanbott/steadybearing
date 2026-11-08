@@ -5,6 +5,7 @@ use anyhow::bail;
 use futures::{SinkExt, StreamExt};
 use sb_protocol::types::{
     HistoricalResolution, HistoricalRow, IpcRequest, IpcResponse, MetricSample,
+    PROTOCOL_VERSION,
 };
 use tokio::net::UnixStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
@@ -13,7 +14,27 @@ pub type IpcFramed = Framed<UnixStream, LengthDelimitedCodec>;
 
 pub async fn connect(path: &str) -> anyhow::Result<IpcFramed> {
     let stream = UnixStream::connect(path).await?;
-    Ok(Framed::new(stream, LengthDelimitedCodec::new()))
+    let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
+
+    let request = bincode::serialize(&IpcRequest::Hello {
+        protocol: PROTOCOL_VERSION,
+    })?;
+    framed.send(bytes::Bytes::from(request)).await?;
+
+    let data = match framed.next().await {
+        Some(Ok(data)) => data,
+        Some(Err(err)) => bail!("handshake failed: {err}"),
+        None => bail!("connection closed during handshake"),
+    };
+
+    match bincode::deserialize::<IpcResponse>(&data)? {
+        IpcResponse::Hello { protocol } if protocol == PROTOCOL_VERSION => Ok(framed),
+        IpcResponse::Hello { protocol } => bail!(
+            "protocol mismatch: daemon speaks v{protocol}, client speaks v{PROTOCOL_VERSION}; update both binaries"
+        ),
+        IpcResponse::Error(message) => bail!("{message}"),
+        other => bail!("unexpected handshake response: {other:?}"),
+    }
 }
 
 pub async fn request_snapshot(framed: &mut IpcFramed) -> anyhow::Result<Vec<MetricSample>> {

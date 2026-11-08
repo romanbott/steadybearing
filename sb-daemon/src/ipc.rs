@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
-use sb_protocol::types::{IpcRequest, IpcResponse, MetricSample};
+use sb_protocol::types::{IpcRequest, IpcResponse, MetricSample, PROTOCOL_VERSION};
 
 use crate::config::Config;
 use crate::store::TelemetryStore;
@@ -145,6 +145,22 @@ pub fn spawn(
                     };
 
                     match request {
+                        IpcRequest::Hello { protocol } => {
+                            let response = if protocol == PROTOCOL_VERSION {
+                                IpcResponse::Hello {
+                                    protocol: PROTOCOL_VERSION,
+                                }
+                            } else {
+                                IpcResponse::Error(format!(
+                                    "protocol mismatch: daemon speaks v{PROTOCOL_VERSION}, client speaks v{protocol}"
+                                ))
+                            };
+                            let response_bytes =
+                                bincode::serialize(&response).unwrap_or_default();
+                            let _ = framed
+                                .send(bytes::Bytes::from(response_bytes))
+                                .await;
+                        }
                         IpcRequest::SnapshotAll => {
                             let response =
                                 IpcResponse::Snapshot(store.tier1.snapshot());

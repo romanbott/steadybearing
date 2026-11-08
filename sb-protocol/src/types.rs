@@ -34,8 +34,12 @@ pub enum HistoricalResolution {
     Hourly,
 }
 
+/// Bump this whenever `IpcRequest` or `IpcResponse` changes shape.
+pub const PROTOCOL_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcRequest {
+    Hello { protocol: u32 },
     SnapshotAll,
     StreamLive,
     Historical { resolution: HistoricalResolution, count: usize },
@@ -43,6 +47,7 @@ pub enum IpcRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcResponse {
+    Hello { protocol: u32 },
     Snapshot(Vec<MetricSample>),
     LiveTick(MetricSample),
     Historical(Vec<HistoricalRow>),
