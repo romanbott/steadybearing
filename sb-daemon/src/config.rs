@@ -341,7 +341,21 @@ impl Config {
 
     fn load_config_file(path: &str) -> anyhow::Result<ConfigFile> {
         let contents = std::fs::read_to_string(path)?;
-        Ok(toml::from_str(&contents)?)
+        let document: toml::Value = toml::from_str(&contents)?;
+
+        if let Some(retention) = document.get("retention").and_then(toml::Value::as_table) {
+            if retention
+                .keys()
+                .any(|key| key == "pwm_baseline" || key.starts_with("fan_"))
+            {
+                tracing::warn!(
+                    path,
+                    "fan settings are inside [retention] and will be ignored; move them above the [retention] table"
+                );
+            }
+        }
+
+        Ok(document.try_into()?)
     }
 }
 
@@ -392,6 +406,21 @@ mod tests {
         let mut config = valid_config();
         config.fan_soft_max = 90.0;
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn packaged_config_keeps_fan_settings_top_level() {
+        let document: toml::Value = toml::from_str(include_str!("../../sb.toml")).unwrap();
+        assert!(document.get("pwm_baseline").is_some());
+        assert!(document.get("fan_drift_secs").is_some());
+        assert!(document
+            .get("retention")
+            .and_then(|value| value.get("pwm_baseline"))
+            .is_none());
+        assert!(document
+            .get("retention")
+            .and_then(|value| value.get("fan_drift_secs"))
+            .is_none());
     }
 
     #[test]

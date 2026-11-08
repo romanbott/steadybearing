@@ -1,5 +1,8 @@
 # SteadyBearing daemon configuration
 # All fields are optional — defaults shown below.
+#
+# Top-level keys are daemon and fan settings. Tables such as [retention] must
+# come after them; fan keys written inside a table are ignored.
 
 socket_path = "/run/sb/sb.sock"
 
@@ -15,6 +18,51 @@ db_path = "/var/lib/sb/history.db"
 # Seconds between DB flushes; 60 s keeps the 10 s view fresh.
 db_flush_secs = 60
 
+# --- Fan control (hysteresis) ---
+# The curve is CPU-package based and deliberately slow. It keeps a continuous
+# baseline airflow and treats 80 C as a safety threshold, not an operating
+# point. See docs/configuration.md for the state machine, tuning goals and
+# example profiles.
+
+# Floor PWM (0-255), never drops below this. 110 matches the EC's own start
+# (~43%, ~1380 RPM on the ME Mini) and provides airflow over the NVMe/VRM.
+# Lower = less fan wear/noise but warmer components.
+pwm_baseline = 110
+
+# Below this temperature the fan steps down toward the baseline.
+fan_soft_min = 40.0
+
+# Below this temperature the fan sheds only 1 PWM unit per drift_secs. Between
+# drift_temp and soft_max it holds (the hysteresis band).
+fan_drift_temp = 50.0
+
+# Above this temperature the fan steps up by fan_step every dwell_secs.
+fan_soft_max = 60.0
+
+# Safety ramp: at/above this temperature ramp to 255 over hard_ramp_secs.
+fan_hard_max = 80.0
+
+# After a hard-max event, leave 100% once the 10 s average falls below this.
+# Keep it above soft_max; 70 avoids holding 100% down to the normal band.
+fan_hard_exit_temp = 70.0
+
+# How long a condition must hold before a step; larger = slower/fewer changes.
+fan_dwell_secs = 10.0
+
+# PWM units per adjustment step; larger = faster/bigger changes.
+fan_step = 5
+
+# Seconds to ramp from the current PWM to 255 when hard_max is hit.
+fan_hard_ramp_secs = 10.0
+
+# Seconds per 1-unit PWM reduction when drifting. 30 is very slow: a fan at
+# PWM 200 can take ~45 minutes to return to 110 after a load. 10-15 is a good
+# compromise for fan wear without making the curve twitchy.
+fan_drift_secs = 30.0
+
+# --- Retention ---
+# This table must stay at the end; everything above is top-level.
+
 [retention]
 # 10 s history is kept for one day; 1 m history for seven days.
 # 10 m and 1 h history are kept forever.
@@ -24,36 +72,3 @@ minute_days = 7
 # Auxiliary NVMe/board sensor history (10 s rollups): kept for 14 days.
 # Set to 0 to disable retention (old rows are pruned on each flush).
 aux_days = 14
-
-# --- Fan control (hysteresis) ---
-
-# Minimum PWM (0-255), never drops below this even when idling.
-# ~43% speed = 110/255, silent airflow to flush NVMe heat
-pwm_baseline = 110
-
-# Temperature (°C) below which the fan begins slowing down
-fan_soft_min = 40.0
-
-# Temperature (°C) above which the fan begins speeding up
-fan_soft_max = 60.0
-
-# Temperature (°C) at which the fan ramps to 100% over hard_ramp_secs
-fan_hard_max = 80.0
-
-# After a hard-max event, leave 100% once the 10 s average falls below this
-fan_hard_exit_temp = 70.0
-
-# Seconds the temperature must stay above/below threshold before reacting
-fan_dwell_secs = 10.0
-
-# PWM units to add or remove per adjustment step
-fan_step = 5
-
-# Seconds to ramp from current PWM to 255 when hard_max is hit
-fan_hard_ramp_secs = 10.0
-
-# Temperature (°C) below which PWM drifts back toward baseline
-fan_drift_temp = 50.0
-
-# Seconds per 1-unit PWM reduction when drifting
-fan_drift_secs = 30.0
