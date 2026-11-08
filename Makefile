@@ -50,6 +50,7 @@ stage: build man changelog
 	install -m644 sb-daemon.service $(STAGE)/sb-daemon.service
 	install -m644 sb.toml $(STAGE)/sb.toml
 	install -m644 README.md $(STAGE)/README.md
+	install -m644 LICENSE $(STAGE)/LICENSE
 	install -m644 packaging/copyright $(STAGE)/copyright
 	install -m644 $(CHANGELOG) $(STAGE)/changelog.gz
 	install -m644 $(MAN)/sb.1.gz $(STAGE)/man/sb.1.gz

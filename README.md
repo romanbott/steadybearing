@@ -85,3 +85,13 @@ make dist                # .deb, tarball and checksums (requires nfpm)
 
 The fake-sysfs harness builds the daemon with the dev-only `test-hwmon`
 feature; release builds do not include those overrides.
+
+## License
+
+SteadyBearing is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+See [LICENSE](LICENSE) for the full text. If you distribute compiled binaries,
+the GPL requires you to provide the corresponding source code.

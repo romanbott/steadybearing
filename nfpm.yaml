@@ -15,7 +15,7 @@ description: |
   fan curve, and keeps tiered telemetry history in SQLite. Includes the sb
   terminal dashboard.
 vendor: Roman Contreras
-license: all-rights-reserved
+license: GPL-3.0-or-later
 depends:
   - systemd
   - libc6

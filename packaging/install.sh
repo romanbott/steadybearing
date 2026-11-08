@@ -128,7 +128,7 @@ if [ "$UNINSTALL" = 1 ]; then
     rmdir "$LIBDIR" 2>/dev/null || true
     rm -f "$SYSUSERS_DIR/sb.conf"
     rm -f "$MANDIR/sb.1.gz" "$MANDIR/sb-daemon.1.gz"
-    rm -f "$DOCDIR/README.md" "$DOCDIR/copyright" "$DOCDIR/changelog.gz"
+    rm -f "$DOCDIR/README.md" "$DOCDIR/LICENSE" "$DOCDIR/copyright" "$DOCDIR/changelog.gz"
     rmdir "$DOCDIR" 2>/dev/null || true
     if [ "$have_systemd" = 1 ]; then
         systemctl daemon-reload >/dev/null 2>&1 || true
@@ -156,6 +156,9 @@ if [ -e "$src/migrate-history" ]; then
     install -Dm755 "$src/migrate-history" "$LIBDIR/migrate-history"
 fi
 install -Dm644 "$src/README.md" "$DOCDIR/README.md"
+if [ -e "$src/LICENSE" ]; then
+    install -Dm644 "$src/LICENSE" "$DOCDIR/LICENSE"
+fi
 if [ -e "$src/copyright" ]; then
     install -Dm644 "$src/copyright" "$DOCDIR/copyright"
 fi

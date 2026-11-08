@@ -35,9 +35,9 @@ package, `PREFIX/lib/sb/migrate-history` for the tarball). The package
 installs the unit under `/usr/lib/systemd/system`; the tarball installer uses
 `/etc/systemd/system`.
 
-> The packaging currently declares the code as all rights reserved. Choose a
-> license and update `packaging/copyright` (and the nfpm `license` field)
-> before distributing it. The `Cargo.toml` metadata should match.
+The project is licensed under GPL-3.0-or-later; see `../LICENSE`. The Debian
+`copyright` file points at `/usr/share/common-licenses/GPL-3`, and `nfpm.yaml`
+carries the same SPDX identifier.
 
 ## Debian
 
