@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Check shell scripts
+        run: |
+          for f in dev/*.sh packaging/*.sh tools/*.sh; do
+            bash -n "$f"
+          done
+
+  debian-bookworm:
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git gzip lintian make tar
+          curl -sSL -o /tmp/nfpm.tar.gz \
+            https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_Linux_x86_64.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /usr/local/bin nfpm
+
+      - name: Build package and tarball
+        run: make NFPM=/usr/local/bin/nfpm dist
+
+      - name: Lint the Debian package
+        run: lintian dist/sb_*.deb
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-bookworm
+          path: |
+            dist/sb_*.deb
+            dist/sb-*.tar.gz
+            dist/SHA256SUMS

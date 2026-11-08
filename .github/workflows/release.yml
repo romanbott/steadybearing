@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git gzip lintian make tar
+          curl -sSL -o /tmp/nfpm.tar.gz \
+            https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_Linux_x86_64.tar.gz
+          tar -xzf /tmp/nfpm.tar.gz -C /usr/local/bin nfpm
+
+      - name: Build release artifacts
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" \
+            make VERSION="${GITHUB_REF_NAME#v}" NFPM=/usr/local/bin/nfpm dist
+
+      - name: Lint the Debian package
+        run: lintian dist/sb_*.deb
+
+      - name: Publish the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/sb_*.deb
+            dist/sb-*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true
