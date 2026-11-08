@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-11-08
+
+### Changed
+
+- Replaced the unmaintained `bincode` 1.3.3 with `bincode-next` 3.1.1 using its
+  legacy configuration, preserving the existing wire format and protocol
+  version 1.
+- Raised the minimum supported Rust version to 1.90.
+- Updated crossterm to 0.29, rusqlite to 0.41, toml to 1.2, clap to 4.6.7 and
+  tokio-util to 0.7.20.
+- Refreshed the GitHub Actions (`checkout` v7, `upload-artifact` v7,
+  `action-gh-release` v3).
+
 ## [0.1.1] - 2026-11-07
 
 ### Removed
@@ -31,6 +44,7 @@ follows [Semantic Versioning](https://semver.org/).
 - Fake-sysfs harness and a read-only ME Mini diagnostics collector.
 - Me Mini / IT8613E hardware and it87 driver documentation.
 
-[Unreleased]: https://github.com/romanbott/steadybearing/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/romanbott/steadybearing/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/romanbott/steadybearing/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/romanbott/steadybearing/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/romanbott/steadybearing/releases/tag/v0.1.0
