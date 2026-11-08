@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-08
+
+### Added
+
+- Auxiliary thermal telemetry for NVMe drives and IT8613 board sensors,
+  stored as 10 s rollups in `aux_rollups_10s` with `aux_sensors` metadata.
+  It is collected for tuning and does not affect fan control yet.
+- `daemon_runs` records each daemon start with its version and configuration.
+- `--check` now lists discovered auxiliary sensors and their current values.
+
+### Changed
+
+- After a hard-max event, the fan now leaves 100% at `fan_hard_exit_temp`
+  (default 70 °C) instead of waiting for `fan_soft_max`.
+- PWM is written only when it changes, with a periodic refresh.
+- Configuration validation now checks the drift and hard-max-exit ordering.
+
+### Fixed
+
+- PWM/state transitions are logged, and a warning is emitted when the fan
+  reports 0 RPM while a non-zero PWM is applied.
+
 ## [0.1.2] - 2026-11-08
 
 ### Changed
@@ -44,7 +66,8 @@ follows [Semantic Versioning](https://semver.org/).
 - Fake-sysfs harness and a read-only ME Mini diagnostics collector.
 - Me Mini / IT8613E hardware and it87 driver documentation.
 
-[Unreleased]: https://github.com/romanbott/steadybearing/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/romanbott/steadybearing/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/romanbott/steadybearing/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/romanbott/steadybearing/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/romanbott/steadybearing/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/romanbott/steadybearing/releases/tag/v0.1.0

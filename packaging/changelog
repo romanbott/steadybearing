@@ -1,3 +1,16 @@
+sb (0.2.0) unstable; urgency=medium
+
+  * Add NVMe and IT8613 auxiliary thermal telemetry (10 s rollups) for
+    tuning; it does not affect fan control yet.
+  * Record daemon starts, versions and configurations in daemon_runs.
+  * Leave hard-max at fan_hard_exit_temp (default 70 C) instead of
+    fan_soft_max.
+  * Write PWM only on change, with a periodic refresh.
+  * Validate drift and hard-max-exit ordering; log PWM/state changes and
+    warn on a stalled fan.
+
+ -- Roman Contreras <roman.contreras@ciencias.unam.mx>  Sun, 08 Nov 2026 18:00:00 -0600
+
 sb (0.1.2) unstable; urgency=medium
 
   * Replace the unmaintained bincode 1.3.3 with bincode-next 3.1.1 using its

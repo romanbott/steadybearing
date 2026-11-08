@@ -1,5 +1,5 @@
 # Build with:
-#   VERSION=0.1.2 ARCH=amd64 nfpm package -f nfpm.yaml -p deb -t dist/
+#   VERSION=0.2.0 ARCH=amd64 nfpm package -f nfpm.yaml -p deb -t dist/
 #
 # The Makefile exports VERSION and ARCH and provides a `make deb` target.
 name: sb
