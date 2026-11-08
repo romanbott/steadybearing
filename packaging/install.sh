@@ -121,6 +121,7 @@ fi
 if [ "$UNINSTALL" = 1 ]; then
     if [ "$have_systemd" = 1 ]; then
         systemctl disable --now sb-daemon.service >/dev/null 2>&1 || true
+        systemctl unmask sb-daemon.service >/dev/null 2>&1 || true
     fi
     rm -f "$BINDIR/sb-daemon" "$BINDIR/sb" "$UNIT_DIR/sb-daemon.service"
     rm -f "$LIBDIR/migrate-history"
@@ -184,12 +185,16 @@ else
 fi
 
 install -d "$UNIT_DIR"
+# The package masks the unit on removal; replace any mask link instead of
+# writing through it.
+rm -f "$UNIT_DIR/sb-daemon.service"
 sed -e "s|^ExecStart=.*|ExecStart=$BINDIR/sb-daemon -v|" \
     -e "s|^Documentation=.*|Documentation=file:$DOCDIR/README.md|" \
     "$src/sb-daemon.service" > "$UNIT_DIR/sb-daemon.service"
 chmod 0644 "$UNIT_DIR/sb-daemon.service"
 
 if [ "$have_systemd" = 1 ]; then
+    systemctl unmask sb-daemon.service >/dev/null 2>&1 || true
     systemctl daemon-reload
     systemctl enable sb-daemon.service >/dev/null 2>&1 || true
     if [ "$DO_START" = 1 ]; then
