@@ -30,6 +30,8 @@ running it on a new machine.
   - 1 m for 7 days,
   - 10 m forever,
   - 1 h forever.
+- Auxiliary NVMe and IT8613 board temperature telemetry for tuning (stored in
+  the same database; not shown in the TUI yet).
 - Live TUI with raw/MA/min/max views, grids, and historical navigation.
 - Local Unix socket (`0660`, group `sb`) with a protocol version handshake.
 - systemd unit with `StateDirectory`/`RuntimeDirectory` and conservative
@@ -110,7 +112,8 @@ sb
 ```
 
 `sb-daemon --check` discovers the hwmon paths and prints the current
-`temp1_input`, `pwm2`, `pwm2_enable` and fan values without touching the fan.
+`temp1_input`, `pwm2`, `pwm2_enable`, fan and auxiliary NVMe/board values
+without touching the fan.
 
 ## Configuration
 
@@ -135,7 +138,10 @@ field and the fan curve.
 ## History and backup
 
 Telemetry lives in `/var/lib/sb/history.db`. The 10 s and 1 m tiers are pruned
-automatically; 10 m and 1 h are kept forever.
+automatically; 10 m and 1 h are kept forever. Auxiliary NVMe/board temperatures
+are stored in `aux_rollups_10s` and kept for `[retention] aux_days` (default
+14 days). See [configuration](docs/configuration.md) for the schema and a
+query example.
 
 For a consistent backup, stop the service and copy the file:
 

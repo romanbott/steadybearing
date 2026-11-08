@@ -95,7 +95,7 @@ impl HwmonLocator {
 
 /// Root used by the real discovery. The environment override only exists in
 /// builds with the `test-hwmon` feature (used by the fake-sysfs harness).
-fn hwmon_root() -> PathBuf {
+pub(crate) fn hwmon_root() -> PathBuf {
     #[cfg(feature = "test-hwmon")]
     if let Some(root) = std::env::var_os("SB_HWMON_ROOT") {
         return PathBuf::from(root);

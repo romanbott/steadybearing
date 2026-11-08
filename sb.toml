@@ -21,6 +21,10 @@ db_flush_secs = 60
 ten_second_days = 1
 minute_days = 7
 
+# Auxiliary NVMe/board sensor history (10 s rollups): kept for 14 days.
+# Set to 0 to disable retention (old rows are pruned on each flush).
+aux_days = 14
+
 # --- Fan control (hysteresis) ---
 
 # Minimum PWM (0-255), never drops below this even when idling.
@@ -35,6 +39,9 @@ fan_soft_max = 60.0
 
 # Temperature (°C) at which the fan ramps to 100% over hard_ramp_secs
 fan_hard_max = 80.0
+
+# After a hard-max event, leave 100% once the 10 s average falls below this
+fan_hard_exit_temp = 70.0
 
 # Seconds the temperature must stay above/below threshold before reacting
 fan_dwell_secs = 10.0

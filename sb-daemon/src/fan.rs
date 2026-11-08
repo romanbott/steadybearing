@@ -6,6 +6,7 @@ use anyhow::Context;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
+use crate::aux::{AuxLocator, AuxStore};
 use crate::config::Config;
 use crate::hwmon::HwmonLocator;
 use crate::sampler::Sampler;
@@ -16,6 +17,11 @@ use sb_protocol::types::MetricSample;
 /// automatic fan control.
 const MAX_SENSOR_ERRORS: u32 = 5;
 
+/// Warn when the fan reports zero RPM for this many consecutive samples while
+/// a non-zero PWM is applied.
+const STALL_WARN_SECS: u32 = 30;
+
+#[derive(Debug)]
 enum FanState {
     Stable,
     Cooling { ticks: u64 },
@@ -27,6 +33,7 @@ enum FanState {
 
 pub fn spawn(
     store: TelemetryStore,
+    aux_store: AuxStore,
     hwmon: HwmonLocator,
     tx: broadcast::Sender<MetricSample>,
     config: Config,
@@ -39,12 +46,30 @@ pub fn spawn(
         ticker.tick().await;
         let mut tick_count: u64 = 0;
         let mut current_pwm: u8 = config.pwm_baseline;
+        let mut last_written: Option<u8> = None;
         let mut state = FanState::Stable;
         let mut sensor_errors: u32 = 0;
+        let mut stall_ticks: u32 = 0;
+        let mut stall_reported = false;
+        let mut aux_locator = AuxLocator::discover();
+        aux_store.replace_sensors(aux_locator.sensors().to_vec());
+        tracing::info!(
+            count = aux_locator.sensors().len(),
+            "auxiliary thermal sensors active"
+        );
 
         loop {
             ticker.tick().await;
             tick_count += 1;
+
+            if tick_count.is_multiple_of(60) {
+                aux_locator = AuxLocator::discover();
+                aux_store.replace_sensors(aux_locator.sensors().to_vec());
+                tracing::debug!(
+                    count = aux_locator.sensors().len(),
+                    "auxiliary thermal sensors rescanned"
+                );
+            }
 
             let sample = match sampler.sample() {
                 Ok(sample) => sample,
@@ -65,12 +90,45 @@ pub fn spawn(
             sensor_errors = 0;
             store.tier1.push(sample);
             let _ = tx.send(sample);
+            aux_store.push(aux_locator.sample(sample.timestamp));
 
             let ma_temp = compute_10s_ma(&store);
+            let previous_pwm = current_pwm;
             let target_pwm = step_pwm(ma_temp, &mut state, &mut current_pwm, &config);
-            apply_pwm(&hwmon, target_pwm)
-                .await
-                .with_context(|| format!("writing pwm to {}", hwmon.pwm_path.display()))?;
+
+            if target_pwm != previous_pwm {
+                tracing::info!(
+                    from = previous_pwm,
+                    to = target_pwm,
+                    ma_temp,
+                    state = ?state,
+                    "fan pwm changed"
+                );
+            }
+
+            // Only touch the EC when the value changes, with a periodic
+            // refresh in case the controller was reset externally.
+            if last_written != Some(target_pwm) || tick_count.is_multiple_of(60) {
+                apply_pwm(&hwmon, target_pwm)
+                    .await
+                    .with_context(|| format!("writing pwm to {}", hwmon.pwm_path.display()))?;
+                last_written = Some(target_pwm);
+            }
+
+            if target_pwm > 0 && sample.fan_rpm == 0 {
+                stall_ticks += 1;
+                if stall_ticks >= STALL_WARN_SECS && !stall_reported {
+                    tracing::warn!(
+                        pwm = target_pwm,
+                        seconds = stall_ticks,
+                        "fan reports 0 RPM; check the fan, header and driver"
+                    );
+                    stall_reported = true;
+                }
+            } else {
+                stall_ticks = 0;
+                stall_reported = false;
+            }
 
             if verbose && tick_count.is_multiple_of(5) {
                 tracing::info!(
@@ -103,7 +161,7 @@ fn step_pwm(ma_temp: f32, state: &mut FanState, current_pwm: &mut u8, config: &C
     }
 
     if let FanState::HardMax { started_at, start_pwm } = *state {
-        if ma_temp < config.fan_soft_max {
+        if ma_temp < config.fan_hard_exit_temp {
             *state = FanState::Recovering { ticks: 0 };
             return *current_pwm;
         }
@@ -119,7 +177,7 @@ fn step_pwm(ma_temp: f32, state: &mut FanState, current_pwm: &mut u8, config: &C
     // After a hard-max event, step back down towards the baseline instead of
     // holding 100% through the soft-max/soft-min dead band.
     if let FanState::Recovering { ticks } = *state {
-        if ma_temp >= config.fan_soft_max {
+        if ma_temp >= config.fan_hard_exit_temp {
             *state = FanState::Cooling { ticks: 1 };
             return *current_pwm;
         }
@@ -222,6 +280,7 @@ mod tests {
             fan_soft_min: 40.0,
             fan_soft_max: 60.0,
             fan_hard_max: 80.0,
+            fan_hard_exit_temp: 70.0,
             fan_dwell_secs: 10.0,
             fan_step: 5,
             fan_hard_ramp_secs: 10.0,
@@ -289,12 +348,40 @@ mod tests {
     }
 
     #[test]
+    fn hard_max_holds_between_exit_and_hard_max() {
+        let config = config();
+        let mut state = FanState::HardMax {
+            started_at: tokio::time::Instant::now(),
+            start_pwm: 255,
+        };
+        let mut pwm = 255;
+
+        let target = step_pwm(75.0, &mut state, &mut pwm, &config);
+
+        assert_eq!(target, 255);
+        assert!(matches!(state, FanState::HardMax { .. }));
+    }
+
+    #[test]
+    fn recovery_steps_down_below_hard_exit() {
+        let config = config();
+        let mut state = FanState::Recovering { ticks: 0 };
+        let mut pwm = 200;
+
+        for _ in 0..(config.fan_dwell_secs as u64) {
+            step_pwm(65.0, &mut state, &mut pwm, &config);
+        }
+        assert_eq!(pwm, 195);
+        assert!(matches!(state, FanState::Recovering { .. }));
+    }
+
+    #[test]
     fn recovery_switches_back_to_cooling_when_hot() {
         let config = config();
         let mut state = FanState::Recovering { ticks: 0 };
         let mut pwm = 200;
 
-        let target = step_pwm(65.0, &mut state, &mut pwm, &config);
+        let target = step_pwm(75.0, &mut state, &mut pwm, &config);
 
         assert_eq!(target, 200);
         assert!(matches!(state, FanState::Cooling { .. }));

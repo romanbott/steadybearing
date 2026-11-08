@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Roman Contreras
 
 use clap::Parser;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -64,6 +64,9 @@ pub struct ConfigFile {
     #[serde(default = "default_fan_hard_max")]
     pub fan_hard_max: f32,
 
+    #[serde(default = "default_fan_hard_exit_temp")]
+    pub fan_hard_exit_temp: f32,
+
     #[serde(default = "default_fan_dwell_secs")]
     pub fan_dwell_secs: f32,
 
@@ -83,13 +86,16 @@ pub struct ConfigFile {
     pub db_flush_secs: f32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RetentionConfig {
     #[serde(default = "default_ten_second_days")]
     pub ten_second_days: u32,
 
     #[serde(default = "default_minute_days")]
     pub minute_days: u32,
+
+    #[serde(default = "default_aux_days")]
+    pub aux_days: u32,
 }
 
 impl Default for RetentionConfig {
@@ -97,6 +103,7 @@ impl Default for RetentionConfig {
         Self {
             ten_second_days: default_ten_second_days(),
             minute_days: default_minute_days(),
+            aux_days: default_aux_days(),
         }
     }
 }
@@ -117,6 +124,10 @@ fn default_minute_days() -> u32 {
     7
 }
 
+fn default_aux_days() -> u32 {
+    14
+}
+
 fn default_pwm_baseline() -> u8 {
     sb_protocol::types::PWM_BASELINE
 }
@@ -131,6 +142,10 @@ fn default_fan_soft_max() -> f32 {
 
 fn default_fan_hard_max() -> f32 {
     80.0
+}
+
+fn default_fan_hard_exit_temp() -> f32 {
+    70.0
 }
 
 fn default_fan_dwell_secs() -> f32 {
@@ -157,7 +172,7 @@ fn default_db_flush_secs() -> f32 {
     60.0
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Config {
     pub socket_path: String,
     pub socket_gid: Option<u32>,
@@ -168,6 +183,7 @@ pub struct Config {
     pub fan_soft_min: f32,
     pub fan_soft_max: f32,
     pub fan_hard_max: f32,
+    pub fan_hard_exit_temp: f32,
     pub fan_dwell_secs: f32,
     pub fan_step: u8,
     pub fan_hard_ramp_secs: f32,
@@ -225,6 +241,10 @@ impl Config {
                 .as_ref()
                 .map(|c| c.fan_hard_max)
                 .unwrap_or(default_fan_hard_max()),
+            fan_hard_exit_temp: config_file
+                .as_ref()
+                .map(|c| c.fan_hard_exit_temp)
+                .unwrap_or(default_fan_hard_exit_temp()),
             fan_dwell_secs: config_file
                 .as_ref()
                 .map(|c| c.fan_dwell_secs)
@@ -273,6 +293,23 @@ impl Config {
             "fan_soft_max ({}) must be below fan_hard_max ({})",
             self.fan_soft_max,
             self.fan_hard_max
+        );
+        anyhow::ensure!(
+            self.fan_hard_exit_temp.is_finite()
+                && self.fan_hard_exit_temp > self.fan_soft_max
+                && self.fan_hard_exit_temp < self.fan_hard_max,
+            "fan_hard_exit_temp ({}) must be between fan_soft_max and fan_hard_max",
+            self.fan_hard_exit_temp
+        );
+        anyhow::ensure!(
+            self.fan_drift_temp >= self.fan_soft_min
+                && self.fan_drift_temp < self.fan_soft_max,
+            "fan_drift_temp ({}) must be between fan_soft_min and fan_soft_max",
+            self.fan_drift_temp
+        );
+        anyhow::ensure!(
+            self.retention.aux_days <= 3650,
+            "retention.aux_days must be at most 3650"
         );
 
         anyhow::ensure!(
@@ -323,6 +360,7 @@ mod tests {
             fan_soft_min: 40.0,
             fan_soft_max: 60.0,
             fan_hard_max: 80.0,
+            fan_hard_exit_temp: 70.0,
             fan_dwell_secs: 10.0,
             fan_step: 5,
             fan_hard_ramp_secs: 10.0,
@@ -357,11 +395,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_bad_drift_and_hard_exit_temperatures() {
+        let mut config = valid_config();
+        config.fan_drift_temp = 65.0;
+        assert!(config.validate().is_err());
+
+        let mut config = valid_config();
+        config.fan_hard_exit_temp = 60.0;
+        assert!(config.validate().is_err());
+
+        let mut config = valid_config();
+        config.fan_hard_exit_temp = 85.0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
     fn retention_defaults_apply() {
         let parsed: ConfigFile =
             toml::from_str("db_path = \"/tmp/history.db\"").unwrap();
         assert_eq!(parsed.retention.ten_second_days, 1);
         assert_eq!(parsed.retention.minute_days, 7);
+        assert_eq!(parsed.retention.aux_days, 14);
 
         let parsed: ConfigFile = toml::from_str(
             "[retention]\nten_second_days = 2\n",
@@ -369,6 +423,7 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.retention.ten_second_days, 2);
         assert_eq!(parsed.retention.minute_days, 7);
+        assert_eq!(parsed.retention.aux_days, 14);
     }
 
     #[test]

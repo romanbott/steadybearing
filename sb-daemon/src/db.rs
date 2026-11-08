@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Roman Contreras
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -10,11 +10,14 @@ use tokio::task::JoinHandle;
 
 use sb_protocol::types::{HistoricalResolution, HistoricalRow, MetricSample};
 
+use crate::aux::{AuxReading, AuxSensor, AuxStore};
 use crate::config::Config;
 use crate::store::TelemetryStore;
 
 const SCHEMA_VERSION: i64 = 1;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+const AUX_TIER: &str = "aux_rollups_10s";
+const AUX_INTERVAL: i64 = 10;
 
 const TIER_10S: &str = "rollups_10s";
 const TIER_1M: &str = "rollups_1m";
@@ -44,6 +47,16 @@ struct RollupRow {
     sample_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuxRollupRow {
+    ts: i64,
+    sensor_id: String,
+    temp_min: i64,
+    temp_max: i64,
+    temp_mean: i64,
+    sample_count: i64,
+}
+
 /// Open a database connection configured for concurrent readers and writers.
 pub(crate) fn open(path: &str) -> anyhow::Result<Connection> {
     let conn = Connection::open(path)?;
@@ -55,11 +68,13 @@ pub(crate) fn open(path: &str) -> anyhow::Result<Connection> {
 
 pub fn spawn(
     store: TelemetryStore,
+    aux_store: AuxStore,
     config: Config,
     mut shutdown: watch::Receiver<bool>,
 ) -> anyhow::Result<JoinHandle<anyhow::Result<()>>> {
     create_dir_if_needed(&config.db_path)?;
     init_db(&config.db_path)?;
+    record_run(&config)?;
 
     Ok(tokio::spawn(async move {
         let flush_secs = config.db_flush_secs.max(1.0);
@@ -69,7 +84,7 @@ pub fn spawn(
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    if let Err(err) = flush_once(&store, &config).await {
+                    if let Err(err) = flush_once(&store, &aux_store, &config).await {
                         tracing::error!(?err, "telemetry flush failed");
                     }
                 }
@@ -81,7 +96,7 @@ pub fn spawn(
             }
         }
 
-        if let Err(err) = flush_once(&store, &config).await {
+        if let Err(err) = flush_once(&store, &aux_store, &config).await {
             tracing::error!(?err, "final telemetry flush failed");
         }
         Ok(())
@@ -91,9 +106,14 @@ pub fn spawn(
 /// Persist every complete bucket currently in `tier1`, roll the coarse tiers
 /// forward, and prune expired fine history. Called on every flush interval
 /// and once at shutdown.
-async fn flush_once(store: &TelemetryStore, config: &Config) -> anyhow::Result<()> {
+async fn flush_once(
+    store: &TelemetryStore,
+    aux_store: &AuxStore,
+    config: &Config,
+) -> anyhow::Result<()> {
     let snapshot = store.tier1.snapshot();
-    if snapshot.is_empty() {
+    let aux_snapshot = aux_store.snapshot();
+    if snapshot.is_empty() && aux_snapshot.is_empty() {
         return Ok(());
     }
 
@@ -101,6 +121,8 @@ async fn flush_once(store: &TelemetryStore, config: &Config) -> anyhow::Result<(
     let path = config.db_path.clone();
     let ten_second_days = config.retention.ten_second_days;
     let minute_days = config.retention.minute_days;
+    let aux_days = config.retention.aux_days;
+    let aux_sensors = aux_store.sensors();
 
     tokio::task::spawn_blocking(move || {
         let mut conn = open(&path)?;
@@ -112,12 +134,17 @@ async fn flush_once(store: &TelemetryStore, config: &Config) -> anyhow::Result<(
         for row in complete_buckets(&snapshot, ONE_MINUTE) {
             insert_row(&tx, TIER_1M, &row)?;
         }
+        for row in complete_aux_buckets(&aux_snapshot, AUX_INTERVAL) {
+            insert_aux_row(&tx, &row)?;
+        }
+        upsert_aux_sensors(&tx, &aux_sensors, &aux_snapshot, now)?;
 
         rollup_from(&tx, TIER_1M, TIER_10M, TEN_MINUTES, now)?;
         rollup_from(&tx, TIER_10M, TIER_1H, ONE_HOUR, now)?;
 
         prune(&tx, TIER_10S, now.saturating_sub(ten_second_days as i64 * 86400))?;
         prune(&tx, TIER_1M, now.saturating_sub(minute_days as i64 * 86400))?;
+        prune(&tx, AUX_TIER, now.saturating_sub(aux_days as i64 * 86400))?;
 
         tx.commit()?;
         Ok::<_, anyhow::Error>(())
@@ -149,6 +176,36 @@ fn create_schema(conn: &Connection) -> anyhow::Result<()> {
         conn.execute_batch(&table_ddl(table))?;
     }
 
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS aux_sensors (
+            id         TEXT PRIMARY KEY,
+            kind       TEXT NOT NULL,
+            label      TEXT NOT NULL,
+            model      TEXT,
+            serial     TEXT,
+            device     TEXT,
+            first_seen INTEGER NOT NULL,
+            last_seen  INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS aux_rollups_10s (
+            bucket_ts    INTEGER NOT NULL,
+            sensor_id    TEXT NOT NULL,
+            temp_min     INTEGER NOT NULL,
+            temp_max     INTEGER NOT NULL,
+            temp_mean    INTEGER NOT NULL,
+            sample_count INTEGER NOT NULL,
+            PRIMARY KEY (bucket_ts, sensor_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_aux_rollups_sensor_ts
+            ON aux_rollups_10s (sensor_id, bucket_ts);
+        CREATE TABLE IF NOT EXISTS daemon_runs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at  INTEGER NOT NULL,
+            version     TEXT NOT NULL,
+            config_json TEXT NOT NULL
+        );",
+    )?;
+
     let version: Option<String> = conn
         .query_row(
             "SELECT value FROM meta WHERE key = 'schema_version'",
@@ -171,6 +228,17 @@ fn create_schema(conn: &Connection) -> anyhow::Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+fn record_run(config: &Config) -> anyhow::Result<()> {
+    let conn = open(&config.db_path)?;
+    let config_json = serde_json::to_string(config)?;
+    conn.execute(
+        "INSERT INTO daemon_runs (started_at, version, config_json)
+         VALUES (?1, ?2, ?3)",
+        params![now_secs(), env!("CARGO_PKG_VERSION"), config_json],
+    )?;
     Ok(())
 }
 
@@ -358,6 +426,98 @@ fn insert_row(conn: &Connection, table: &str, row: &RollupRow) -> anyhow::Result
     Ok(())
 }
 
+fn complete_aux_buckets(readings: &[AuxReading], interval: i64) -> Vec<AuxRollupRow> {
+    let (Some(oldest), Some(newest)) = (
+        readings.iter().map(|reading| reading.timestamp).min(),
+        readings.iter().map(|reading| reading.timestamp).max(),
+    ) else {
+        return Vec::new();
+    };
+
+    let mut buckets: BTreeMap<(i64, String), Vec<i64>> = BTreeMap::new();
+    for reading in readings {
+        let ts = reading.timestamp / interval * interval;
+        let centicelsius = (reading.millicelsius as f64 / 10.0).round() as i64;
+        buckets
+            .entry((ts, reading.sensor_id.clone()))
+            .or_default()
+            .push(centicelsius);
+    }
+
+    buckets
+        .into_iter()
+        .filter(|((ts, _), _)| *ts >= oldest && *ts + interval - 1 <= newest)
+        .map(|((ts, sensor_id), values)| {
+            let count = values.len() as i64;
+            AuxRollupRow {
+                ts,
+                sensor_id,
+                temp_min: values.iter().copied().min().unwrap_or(0),
+                temp_max: values.iter().copied().max().unwrap_or(0),
+                temp_mean: mean_round(values.iter().sum(), count),
+                sample_count: count,
+            }
+        })
+        .collect()
+}
+
+fn insert_aux_row(conn: &Connection, row: &AuxRollupRow) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO aux_rollups_10s
+         (bucket_ts, sensor_id, temp_min, temp_max, temp_mean, sample_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            row.ts,
+            row.sensor_id,
+            row.temp_min,
+            row.temp_max,
+            row.temp_mean,
+            row.sample_count,
+        ],
+    )?;
+    Ok(())
+}
+
+fn upsert_aux_sensors(
+    conn: &Connection,
+    sensors: &[AuxSensor],
+    readings: &[AuxReading],
+    now: i64,
+) -> anyhow::Result<()> {
+    let seen: BTreeSet<&str> = readings
+        .iter()
+        .map(|reading| reading.sensor_id.as_str())
+        .collect();
+    let metadata: BTreeMap<&str, &AuxSensor> = sensors
+        .iter()
+        .map(|sensor| (sensor.id.as_str(), sensor))
+        .collect();
+
+    for id in seen {
+        let sensor = metadata.get(id).copied();
+        let kind = sensor.map(|s| s.kind.as_str()).unwrap_or("unknown");
+        let label = sensor.map(|s| s.label.as_str()).unwrap_or(id);
+        let model = sensor.and_then(|s| s.model.as_deref());
+        let serial = sensor.and_then(|s| s.serial.as_deref());
+        let device = sensor.and_then(|s| s.device.as_deref());
+
+        conn.execute(
+            "INSERT INTO aux_sensors
+                (id, kind, label, model, serial, device, first_seen, last_seen)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+                kind = excluded.kind,
+                label = excluded.label,
+                model = excluded.model,
+                serial = excluded.serial,
+                device = excluded.device,
+                last_seen = excluded.last_seen",
+            params![id, kind, label, model, serial, device, now, now],
+        )?;
+    }
+    Ok(())
+}
+
 fn prune(conn: &Connection, table: &str, cutoff: i64) -> anyhow::Result<usize> {
     let removed = conn.execute(
         &format!("DELETE FROM {table} WHERE bucket_ts < ?1"),
@@ -430,9 +590,11 @@ fn now_secs() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        bucket_by, complete_buckets, init_db, insert_row, open, prune, query_historical,
-        rollup_from, RollupRow, TIER_10S, TIER_10M, TIER_1M,
+        bucket_by, complete_aux_buckets, complete_buckets, init_db, insert_aux_row,
+        insert_row, open, prune, query_historical, rollup_from, upsert_aux_sensors,
+        AuxRollupRow, RollupRow, AUX_TIER, TIER_10S, TIER_10M, TIER_1M,
     };
+    use crate::aux::{AuxReading, AuxSensor};
     use crate::config::{Config, RetentionConfig};
     use crate::store::TelemetryStore;
     use sb_protocol::types::{HistoricalResolution, MetricSample};
@@ -467,11 +629,13 @@ mod tests {
             retention: RetentionConfig {
                 ten_second_days: 1,
                 minute_days: 7,
+                aux_days: 14,
             },
             pwm_baseline: 110,
             fan_soft_min: 40.0,
             fan_soft_max: 60.0,
             fan_hard_max: 80.0,
+            fan_hard_exit_temp: 70.0,
             fan_dwell_secs: 10.0,
             fan_step: 5,
             fan_hard_ramp_secs: 10.0,
@@ -623,7 +787,10 @@ mod tests {
             store.tier1.push(sample(ts));
         }
 
-        super::flush_once(&store, &config).await.expect("flush");
+        let aux_store = crate::aux::AuxStore::new();
+        super::flush_once(&store, &aux_store, &config)
+            .await
+            .expect("flush");
 
         let conn = open(&path_str).unwrap();
         let count_1m: i64 = conn
@@ -660,7 +827,8 @@ mod tests {
         }
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        let handle = super::spawn(store, config, shutdown_rx).unwrap();
+        let aux_store = crate::aux::AuxStore::new();
+        let handle = super::spawn(store, aux_store, config, shutdown_rx).unwrap();
         shutdown_tx.send(true).unwrap();
 
         let joined = tokio::time::timeout(std::time::Duration::from_secs(10), handle)
@@ -743,6 +911,105 @@ mod tests {
                 .expect("read busy_timeout");
             assert_eq!(timeout, 5000);
         }
+        cleanup(&path_str);
+    }
+
+    #[test]
+    fn aux_buckets_are_scaled_and_weighted() {
+        let readings = vec![
+            AuxReading {
+                timestamp: 0,
+                sensor_id: "s".into(),
+                millicelsius: 45_000,
+            },
+            AuxReading {
+                timestamp: 5,
+                sensor_id: "s".into(),
+                millicelsius: 47_000,
+            },
+            AuxReading {
+                timestamp: 15,
+                sensor_id: "s".into(),
+                millicelsius: 50_000,
+            },
+        ];
+
+        let rows = complete_aux_buckets(&readings, 10);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ts, 0);
+        assert_eq!(rows[0].temp_min, 4500);
+        assert_eq!(rows[0].temp_max, 4700);
+        assert_eq!(rows[0].temp_mean, 4600);
+        assert_eq!(rows[0].sample_count, 2);
+    }
+
+    #[test]
+    fn aux_rows_are_stored_and_pruned() {
+        let path = temp_db("aux");
+        let path_str = path.to_string_lossy().to_string();
+        init_db(&path_str).unwrap();
+        let conn = open(&path_str).unwrap();
+
+        let row = AuxRollupRow {
+            ts: 100,
+            sensor_id: "s".into(),
+            temp_min: 4000,
+            temp_max: 5000,
+            temp_mean: 4500,
+            sample_count: 2,
+        };
+        insert_aux_row(&conn, &row).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM aux_rollups_10s", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+
+        prune(&conn, AUX_TIER, 200).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM aux_rollups_10s", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+
+        cleanup(&path_str);
+    }
+
+    #[test]
+    fn aux_sensor_metadata_is_upserted() {
+        let path = temp_db("aux-metadata");
+        let path_str = path.to_string_lossy().to_string();
+        init_db(&path_str).unwrap();
+        let conn = open(&path_str).unwrap();
+
+        let sensor = AuxSensor {
+            id: "nvme:SERIAL:temp1_input".into(),
+            kind: "nvme".into(),
+            label: "Composite".into(),
+            model: Some("WD".into()),
+            serial: Some("SERIAL".into()),
+            device: Some("0000:03:00.0".into()),
+            path: PathBuf::from("/tmp"),
+        };
+        let readings = vec![AuxReading {
+            timestamp: 100,
+            sensor_id: sensor.id.clone(),
+            millicelsius: 45_000,
+        }];
+
+        upsert_aux_sensors(&conn, std::slice::from_ref(&sensor), &readings, 100).unwrap();
+        upsert_aux_sensors(&conn, std::slice::from_ref(&sensor), &readings, 200).unwrap();
+
+        let (label, first_seen, last_seen): (String, i64, i64) = conn
+            .query_row(
+                "SELECT label, first_seen, last_seen FROM aux_sensors WHERE id = ?1",
+                rusqlite::params![sensor.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(label, "Composite");
+        assert_eq!(first_seen, 100);
+        assert_eq!(last_seen, 200);
+
         cleanup(&path_str);
     }
 }

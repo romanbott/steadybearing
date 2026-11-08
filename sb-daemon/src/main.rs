@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Roman Contreras
 
+mod aux;
 mod config;
 mod db;
 mod fan;
@@ -45,8 +46,14 @@ fn main() -> Result<()> {
         "hwmon paths discovered"
     );
 
+    let aux_locator = aux::AuxLocator::discover();
+    tracing::info!(
+        count = aux_locator.sensors().len(),
+        "auxiliary thermal sensors discovered"
+    );
+
     if config.check {
-        print_hwmon_check(&hwmon);
+        print_hwmon_check(&hwmon, &aux_locator);
         return Ok(());
     }
 
@@ -77,9 +84,18 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         let store = store::TelemetryStore::new();
+        let aux_store = aux::AuxStore::new();
+        aux_store.replace_sensors(aux_locator.sensors().to_vec());
 
-        let fan_handle = fan::spawn(store.clone(), hwmon.clone(), tx.clone(), config.clone());
-        let mut db_handle = db::spawn(store.clone(), config.clone(), db_shutdown_rx)?;
+        let fan_handle = fan::spawn(
+            store.clone(),
+            aux_store.clone(),
+            hwmon.clone(),
+            tx.clone(),
+            config.clone(),
+        );
+        let mut db_handle =
+            db::spawn(store.clone(), aux_store.clone(), config.clone(), db_shutdown_rx)?;
         let ipc_handle = ipc::spawn(
             store.clone(),
             config.socket_path.clone(),
@@ -132,7 +148,7 @@ fn main() -> Result<()> {
     })
 }
 
-fn print_hwmon_check(hwmon: &hwmon::HwmonLocator) {
+fn print_hwmon_check(hwmon: &hwmon::HwmonLocator, aux_locator: &aux::AuxLocator) {
     println!("coretemp:   {}", hwmon.coretemp_path.display());
     println!("pwm:        {}", hwmon.pwm_path.display());
     println!("pwm_enable: {}", hwmon.pwm_enable_path.display());
@@ -159,6 +175,26 @@ fn print_hwmon_check(hwmon: &hwmon::HwmonLocator) {
         "pwm writable: {}",
         if writable { "yes" } else { "no (run as root?)" }
     );
+    println!();
+
+    println!("auxiliary thermal sensors:");
+    if aux_locator.is_empty() {
+        println!("  none detected");
+    } else {
+        for sensor in aux_locator.sensors() {
+            let value = match sensor.read_millicelsius() {
+                Some(millicelsius) => format!("{:.1} C", millicelsius as f32 / 1000.0),
+                None => "<invalid/unavailable>".to_string(),
+            };
+            println!(
+                "  {:<40} {:<12} {}",
+                sensor.id,
+                sensor.label,
+                value
+            );
+        }
+    }
+
     println!();
     println!("No changes were made.");
 }
