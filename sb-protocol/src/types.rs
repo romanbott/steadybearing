@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MetricSample {
     pub timestamp: i64,
     pub cpu_temp: f32,
@@ -13,7 +13,7 @@ pub struct MetricSample {
     pub pwm_value: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistoricalRow {
     pub timestamp: i64,
     pub temp_min: f32,
@@ -37,7 +37,7 @@ pub enum HistoricalResolution {
 /// Bump this whenever `IpcRequest` or `IpcResponse` changes shape.
 pub const PROTOCOL_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum IpcRequest {
     Hello { protocol: u32 },
     SnapshotAll,
@@ -45,7 +45,7 @@ pub enum IpcRequest {
     Historical { resolution: HistoricalResolution, count: usize },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum IpcResponse {
     Hello { protocol: u32 },
     Snapshot(Vec<MetricSample>),

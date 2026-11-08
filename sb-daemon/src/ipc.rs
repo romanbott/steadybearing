@@ -12,6 +12,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
+use sb_protocol::codec;
 use sb_protocol::types::{IpcRequest, IpcResponse, MetricSample, PROTOCOL_VERSION};
 
 use crate::config::Config;
@@ -139,7 +140,7 @@ pub fn spawn(
                         Err(_) => return,
                     };
 
-                    let request: IpcRequest = match bincode::deserialize(&data) {
+                    let request: IpcRequest = match codec::decode(&data) {
                         Ok(r) => r,
                         Err(_) => continue,
                     };
@@ -156,7 +157,7 @@ pub fn spawn(
                                 ))
                             };
                             let response_bytes =
-                                bincode::serialize(&response).unwrap_or_default();
+                                codec::encode(&response).unwrap_or_default();
                             let _ = framed
                                 .send(bytes::Bytes::from(response_bytes))
                                 .await;
@@ -165,7 +166,7 @@ pub fn spawn(
                             let response =
                                 IpcResponse::Snapshot(store.tier1.snapshot());
                             let response_bytes =
-                                bincode::serialize(&response).unwrap_or_default();
+                                codec::encode(&response).unwrap_or_default();
                             let _ = framed
                                 .send(bytes::Bytes::from(response_bytes))
                                 .await;
@@ -178,7 +179,7 @@ pub fn spawn(
                                     Ok(sample) => {
                                         let response = IpcResponse::LiveTick(sample);
                                         let response_bytes =
-                                            bincode::serialize(&response).unwrap_or_default();
+                                            codec::encode(&response).unwrap_or_default();
                                         if framed
                                             .send(bytes::Bytes::from(response_bytes))
                                             .await
@@ -219,7 +220,7 @@ pub fn spawn(
                             };
 
                             let response_bytes =
-                                bincode::serialize(&response).unwrap_or_default();
+                                codec::encode(&response).unwrap_or_default();
                             let _ = framed
                                 .send(bytes::Bytes::from(response_bytes))
                                 .await;

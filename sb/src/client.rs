@@ -3,6 +3,7 @@
 
 use anyhow::bail;
 use futures::{SinkExt, StreamExt};
+use sb_protocol::codec;
 use sb_protocol::types::{
     HistoricalResolution, HistoricalRow, IpcRequest, IpcResponse, MetricSample,
     PROTOCOL_VERSION,
@@ -16,7 +17,7 @@ pub async fn connect(path: &str) -> anyhow::Result<IpcFramed> {
     let stream = UnixStream::connect(path).await?;
     let mut framed = Framed::new(stream, LengthDelimitedCodec::new());
 
-    let request = bincode::serialize(&IpcRequest::Hello {
+    let request = codec::encode(&IpcRequest::Hello {
         protocol: PROTOCOL_VERSION,
     })?;
     framed.send(bytes::Bytes::from(request)).await?;
@@ -27,7 +28,7 @@ pub async fn connect(path: &str) -> anyhow::Result<IpcFramed> {
         None => bail!("connection closed during handshake"),
     };
 
-    match bincode::deserialize::<IpcResponse>(&data)? {
+    match codec::decode::<IpcResponse>(&data)? {
         IpcResponse::Hello { protocol } if protocol == PROTOCOL_VERSION => Ok(framed),
         IpcResponse::Hello { protocol } => bail!(
             "protocol mismatch: daemon speaks v{protocol}, client speaks v{PROTOCOL_VERSION}; update both binaries"
@@ -38,7 +39,7 @@ pub async fn connect(path: &str) -> anyhow::Result<IpcFramed> {
 }
 
 pub async fn request_snapshot(framed: &mut IpcFramed) -> anyhow::Result<Vec<MetricSample>> {
-    let req_bytes = bincode::serialize(&IpcRequest::SnapshotAll)?;
+    let req_bytes = codec::encode(&IpcRequest::SnapshotAll)?;
     framed.send(bytes::Bytes::from(req_bytes)).await?;
 
     let data = match framed.next().await {
@@ -47,14 +48,14 @@ pub async fn request_snapshot(framed: &mut IpcFramed) -> anyhow::Result<Vec<Metr
         None => bail!("Connection closed during snapshot"),
     };
 
-    match bincode::deserialize::<IpcResponse>(&data)? {
+    match codec::decode::<IpcResponse>(&data)? {
         IpcResponse::Snapshot(s) => Ok(s),
         other => bail!("Unexpected response: {:?}", other),
     }
 }
 
 pub async fn request_stream_live(framed: &mut IpcFramed) -> anyhow::Result<()> {
-    let req_bytes = bincode::serialize(&IpcRequest::StreamLive)?;
+    let req_bytes = codec::encode(&IpcRequest::StreamLive)?;
     framed.send(bytes::Bytes::from(req_bytes)).await?;
     Ok(())
 }
@@ -68,7 +69,7 @@ pub async fn read_next_tick(
         None => bail!("Connection closed"),
     };
 
-    match bincode::deserialize::<IpcResponse>(&data)? {
+    match codec::decode::<IpcResponse>(&data)? {
         IpcResponse::LiveTick(sample) => Ok(sample),
         other => bail!("Unexpected response: {:?}", other),
     }
@@ -79,7 +80,7 @@ pub async fn request_historical(
     resolution: HistoricalResolution,
     count: usize,
 ) -> anyhow::Result<Vec<HistoricalRow>> {
-    let req_bytes = bincode::serialize(&IpcRequest::Historical { resolution, count })?;
+    let req_bytes = codec::encode(&IpcRequest::Historical { resolution, count })?;
     framed.send(bytes::Bytes::from(req_bytes)).await?;
 
     let data = match framed.next().await {
@@ -88,7 +89,7 @@ pub async fn request_historical(
         None => bail!("Connection closed during historical"),
     };
 
-    match bincode::deserialize::<IpcResponse>(&data)? {
+    match codec::decode::<IpcResponse>(&data)? {
         IpcResponse::Historical(rows) => Ok(rows),
         IpcResponse::Error(message) => bail!("{message}"),
         other => bail!("Unexpected response: {:?}", other),
