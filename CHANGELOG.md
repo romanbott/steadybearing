@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.1] - 2026-11-07
 
 ### Removed
 
@@ -31,5 +31,6 @@ follows [Semantic Versioning](https://semver.org/).
 - Fake-sysfs harness and a read-only ME Mini diagnostics collector.
 - Me Mini / IT8613E hardware and it87 driver documentation.
 
-[Unreleased]: https://github.com/romanbott/steadybearing/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/romanbott/steadybearing/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/romanbott/steadybearing/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/romanbott/steadybearing/releases/tag/v0.1.0
