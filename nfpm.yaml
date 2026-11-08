@@ -15,6 +15,7 @@ description: |
   fan curve, and keeps tiered telemetry history in SQLite. Includes the sb
   terminal dashboard.
 vendor: Roman Contreras
+homepage: https://github.com/romanbott/steadybearing
 license: GPL-3.0-or-later
 depends:
   - systemd

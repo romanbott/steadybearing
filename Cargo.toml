@@ -6,6 +6,8 @@ members = ["sb-protocol", "sb-daemon", "sb"]
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/romanbott/steadybearing"
+homepage = "https://github.com/romanbott/steadybearing"
 
 [profile.release]
 strip = "symbols"

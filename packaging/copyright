@@ -1,5 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: steadybearing
+Source: https://github.com/romanbott/steadybearing
 
 Files: *
 Copyright: 2026 Roman Contreras
