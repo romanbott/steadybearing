@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 sb-protocol = { path = "../sb-protocol" }
 tokio = { version = "1", features = ["full"] }
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.29"
 clap = { version = "4", features = ["derive"] }
 tokio-util = { version = "0.7", features = ["codec"] }
